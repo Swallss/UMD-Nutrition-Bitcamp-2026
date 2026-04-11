@@ -58,6 +58,8 @@ export default function ProfileScreen() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [uid, setUid] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [draftValues, setDraftValues] = useState<Record<string, string>>({});
   const [logs, setLogs] = useState<DailyLogEntry[]>([]);
 
   const totals = getTodayTotals(logs.filter((e) => e.date === todayKey()));
@@ -85,15 +87,57 @@ export default function ProfileScreen() {
   };
 
   const handleEditToggle = async () => {
-    if (isEditing && uid && profile) {
+    if (!isEditing && profile) {
+      // Entering edit mode — snapshot numeric fields as raw strings so the
+      // TextInput is free-form (no per-keystroke rejection).
+      setDraftValues({
+        height_in:          String(profile.metrics.height_in),
+        current_weight_lbs: String(profile.metrics.current_weight_lbs),
+        target_weight_lbs:  String(profile.metrics.target_weight_lbs),
+        age:                String(profile.metrics.age),
+      });
+      setIsEditing(true);
+      return;
+    }
+
+    if (isEditing && profile) {
+      // Use auth.currentUser directly — never stale unlike the uid state.
+      const currentUid = auth.currentUser?.uid;
+      if (!currentUid) {
+        Alert.alert('Not signed in', 'Please sign in again.');
+        return;
+      }
+
+      // Parse draft values — fall back to the current metric if input is blank/invalid.
+      const parse = (key: string, fallback: number) => {
+        const n = parseInt(draftValues[key] ?? '', 10);
+        return isNaN(n) || n <= 0 ? fallback : n;
+      };
+      const updatedProfile: UserProfile = {
+        ...profile,
+        metrics: {
+          ...profile.metrics,
+          height_in:          parse('height_in',          profile.metrics.height_in),
+          current_weight_lbs: parse('current_weight_lbs', profile.metrics.current_weight_lbs),
+          target_weight_lbs:  parse('target_weight_lbs',  profile.metrics.target_weight_lbs),
+          age:                parse('age',                profile.metrics.age),
+        },
+      };
       try {
-        await saveUserProfile(uid, profile);
+        setIsSaving(true);
+        // setDoc with merge:true creates the document if it doesn't exist yet,
+        // or updates it in place if it does.
+        await saveUserProfile(currentUid, updatedProfile);
+        setProfile(updatedProfile);
       } catch (error) {
         Alert.alert('Could not save profile', error instanceof Error ? error.message : 'Please try again.');
         return;
+      } finally {
+        setIsSaving(false);
       }
     }
-    setIsEditing((v) => !v);
+
+    setIsEditing(false);
   };
 
   const handleSignOut = async () => {
@@ -139,9 +183,9 @@ export default function ProfileScreen() {
               <MaterialIcons name="logout" size={16} color={Colors.primary} />
               <Text style={styles.editBtnText}>Sign Out</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={handleEditToggle} style={styles.editBtn}>
+            <TouchableOpacity onPress={handleEditToggle} style={styles.editBtn} disabled={isSaving}>
               <MaterialIcons name={isEditing ? 'check' : 'edit'} size={16} color={Colors.primary} />
-              <Text style={styles.editBtnText}>{isEditing ? 'Save' : 'Edit'}</Text>
+              <Text style={styles.editBtnText}>{isSaving ? 'Saving…' : isEditing ? 'Save' : 'Edit'}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -151,53 +195,33 @@ export default function ProfileScreen() {
             label="Height"
             value={formatHeight(profile.metrics.height_in)}
             editing={isEditing}
-            rawValue={String(profile.metrics.height_in)}
+            rawValue={draftValues.height_in ?? String(profile.metrics.height_in)}
             hint="inches (e.g. 70)"
-            onChangeText={(v) => {
-              // Height must start with 7 (70–79 inches)
-              const n = parseInt(v, 10);
-              if (!isNaN(n) && String(n).startsWith('7')) updateMetric('height_in', n);
-              else if (v === '' || v === '7') updateMetric('height_in', 70);
-            }}
+            onChangeText={(v) => setDraftValues((d) => ({ ...d, height_in: v }))}
           />
           <StatTile
             label="Weight"
             value={`${profile.metrics.current_weight_lbs} lbs`}
             editing={isEditing}
-            rawValue={String(profile.metrics.current_weight_lbs)}
+            rawValue={draftValues.current_weight_lbs ?? String(profile.metrics.current_weight_lbs)}
             hint="lbs (e.g. 150)"
-            onChangeText={(v) => {
-              // Weight must start with 1
-              const n = parseInt(v, 10);
-              if (!isNaN(n) && String(n).startsWith('1')) updateMetric('current_weight_lbs', n);
-              else if (v === '' || v === '1') updateMetric('current_weight_lbs', 100);
-            }}
+            onChangeText={(v) => setDraftValues((d) => ({ ...d, current_weight_lbs: v }))}
           />
           <StatTile
             label="Age"
             value={`${profile.metrics.age} yrs`}
             editing={isEditing}
-            rawValue={String(profile.metrics.age)}
+            rawValue={draftValues.age ?? String(profile.metrics.age)}
             hint="age (e.g. 21)"
-            onChangeText={(v) => {
-              // Age must start with 2 (20–29)
-              const n = parseInt(v, 10);
-              if (!isNaN(n) && String(n).startsWith('2')) updateMetric('age', n);
-              else if (v === '' || v === '2') updateMetric('age', 20);
-            }}
+            onChangeText={(v) => setDraftValues((d) => ({ ...d, age: v }))}
           />
           <StatTile
             label="Target"
             value={`${profile.metrics.target_weight_lbs} lbs`}
             editing={isEditing}
-            rawValue={String(profile.metrics.target_weight_lbs)}
+            rawValue={draftValues.target_weight_lbs ?? String(profile.metrics.target_weight_lbs)}
             hint="lbs (e.g. 140)"
-            onChangeText={(v) => {
-              // Target weight must start with 1
-              const n = parseInt(v, 10);
-              if (!isNaN(n) && String(n).startsWith('1')) updateMetric('target_weight_lbs', n);
-              else if (v === '' || v === '1') updateMetric('target_weight_lbs', 100);
-            }}
+            onChangeText={(v) => setDraftValues((d) => ({ ...d, target_weight_lbs: v }))}
           />
         </View>
 

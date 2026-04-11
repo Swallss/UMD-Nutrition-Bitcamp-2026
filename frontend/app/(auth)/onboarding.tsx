@@ -14,6 +14,7 @@ import { Colors, FONTS, Radii, Spacing } from '@/constants/Colors';
 import { auth } from '@/lib/firebase';
 import {
   fetchUserProfile,
+  getDefaultProfile,
   saveUserProfile,
   type ActivityLevel,
   type GoalType,
@@ -50,7 +51,9 @@ export default function OnboardingScreen() {
       router.replace('/(auth)/login' as any);
       return;
     }
-    fetchUserProfile(user.uid).then(setProfile).catch(() => undefined);
+    fetchUserProfile(user.uid)
+      .then(setProfile)
+      .catch(() => setProfile(getDefaultProfile(user)));
   }, []);
 
   const updateMetric = <K extends keyof UserProfile['metrics']>(key: K, value: UserProfile['metrics'][K]) => {
@@ -75,7 +78,13 @@ export default function OnboardingScreen() {
     }
   };
 
-  if (!profile) return null;
+  if (!profile) {
+    return (
+      <View style={{ flex: 1, backgroundColor: Colors.surface, alignItems: 'center', justifyContent: 'center' }}>
+        <Text style={{ fontFamily: FONTS.medium, color: Colors.onSurfaceVariant }}>Setting up your profile…</Text>
+      </View>
+    );
+  }
 
   return (
     <ScrollView
