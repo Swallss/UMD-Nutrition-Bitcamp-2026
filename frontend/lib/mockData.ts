@@ -37,7 +37,9 @@ export interface DiningHall {
   location: string;
   isOpen: boolean;
   closingTime?: string;
+  closingTimeWeekend?: string;
   openingTime?: string;
+  openingTimeWeekend?: string;
 }
 
 export interface FoodItem {
@@ -130,6 +132,8 @@ export const mockDiningHalls: DiningHall[] = [
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+export const mockFoodItems: FoodItem[] = [];
 
 export interface MacroTotals {
   calories: number;

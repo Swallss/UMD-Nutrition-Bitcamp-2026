@@ -9,9 +9,11 @@ const ACTIVITY_FACTORS: Record<UserProfile['metrics']['activity_level'], number>
 };
 
 const GOAL_ADJUSTMENTS: Record<UserProfile['metrics']['goal_type'], number> = {
-  lose_weight: -350,
+  extreme_weight_loss: -500,
+  moderate_weight_loss: -250,
   maintain_weight: 0,
-  gain_weight: 300,
+  moderate_weight_gain: 250,
+  extreme_weight_gain: 500,
 };
 
 export interface NutritionGoals {
