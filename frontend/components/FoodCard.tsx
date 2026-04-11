@@ -13,6 +13,10 @@ interface Props {
   onRemove?: (item: FoodItem) => void;
   onRate?: (rating: number) => void;
   rating?: number;
+  // Item-level ratings (optional): `userRating` is the current user's rating;
+  // `avgRating` is the community average (fractional allowed).
+  userRating?: number;
+  avgRating?: number;
   added?: boolean;
 }
 
@@ -22,7 +26,9 @@ const HALL_NAMES: Record<string, string> = {
   '251-north': '251 North',
 };
 
-function StarRating({ rating, onRate }: { rating: number; onRate?: (r: number) => void }) {
+function StarRating({ rating, onRate, avg }: { rating: number; onRate?: (r: number) => void; avg?: number }) {
+  // If a user rating is provided (>0) we highlight that; otherwise display rounded average.
+  const display = rating > 0 ? rating : Math.round((avg ?? 0) || 0);
   return (
     <View style={starStyles.row}>
       {[1, 2, 3, 4, 5].map((star) => (
@@ -34,9 +40,9 @@ function StarRating({ rating, onRate }: { rating: number; onRate?: (r: number) =
           style={starStyles.star}
         >
           <MaterialIcons
-            name={rating >= star ? 'star' : 'star-border'}
+            name={display >= star ? 'star' : 'star-border'}
             size={14}
-            color={rating >= star ? '#F5A623' : Colors.onSurfaceVariant}
+            color={display >= star ? '#F5A623' : Colors.onSurfaceVariant}
           />
         </TouchableOpacity>
       ))}
@@ -49,7 +55,7 @@ const starStyles = StyleSheet.create({
   star: { padding: 1 },
 });
 
-export function FoodCard({ item, mode = 'full', onAdd, onRemove, onRate, rating = 0, added = false }: Props) {
+export function FoodCard({ item, mode = 'full', onAdd, onRemove, onRate, rating = 0, userRating, avgRating, added = false }: Props) {
   const isCompact = mode === 'compact';
   const displayName = formatFoodName(item.name);
 
@@ -69,13 +75,35 @@ export function FoodCard({ item, mode = 'full', onAdd, onRemove, onRate, rating 
             <Text style={styles.macros}>
               {item.protein}P · {item.carbs}C · {item.fat}F
             </Text>
-            <StarRating rating={rating} onRate={onRate} />
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <StarRating rating={userRating ?? (rating ?? 0)} onRate={onRate} avg={avgRating} />
+              {userRating && userRating > 0 ? (
+                <Text style={[styles.context, { fontSize: 11, color: Colors.primary }]}>You: {userRating}</Text>
+              ) : (
+                (avgRating ?? 0) > 0 && (
+                  <Text style={[styles.context, { fontSize: 11, color: Colors.onSurfaceVariant }]}>Avg { (avgRating ?? 0).toFixed(1) }</Text>
+                )
+              )}
+            </View>
           </>
         ) : (
-          <Text style={styles.context}>
-            {HALL_NAMES[item.diningHallId] ?? item.diningHallId}
-            {item.station ? ` · ${item.station}` : ''}
-          </Text>
+          <>
+            <Text style={styles.context}>
+              {HALL_NAMES[item.diningHallId] ?? item.diningHallId}
+              {item.station ? ` · ${item.station}` : ''}
+            </Text>
+            {/* Show star rating in full mode as well */}
+            <View style={{ marginTop: 6, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <StarRating rating={userRating ?? (rating ?? 0)} onRate={onRate} avg={avgRating} />
+              {userRating && userRating > 0 ? (
+                <Text style={[styles.context, { fontSize: 12, color: Colors.primary }]}>You: {userRating}</Text>
+              ) : (
+                (avgRating ?? 0) > 0 && (
+                  <Text style={[styles.context, { fontSize: 12, color: Colors.onSurfaceVariant }]}>Avg { (avgRating ?? 0).toFixed(1) }</Text>
+                )
+              )}
+            </View>
+          </>
         )}
       </View>
 

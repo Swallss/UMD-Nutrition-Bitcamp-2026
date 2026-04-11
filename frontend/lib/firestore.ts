@@ -374,3 +374,47 @@ export async function updateLogRating(userId: string, logId: string, rating: num
 export async function removeDailyLog(userId: string, logId: string): Promise<void> {
   await deleteDoc(doc(db, 'users', userId, 'dailyLogs', logId));
 }
+
+/** Item-level ratings stored under items/{itemId}/ratings/{userId} */
+export async function setItemRating(itemId: string, userId: string, rating: number): Promise<void> {
+  const refPath = `items/${itemId}/ratings/${userId}`;
+  try {
+    console.debug('[Firestore] setItemRating ->', refPath, rating);
+    const ratingRef = doc(db, 'items', itemId, 'ratings', userId);
+    await setDoc(ratingRef, {
+      userId,
+      rating,
+      updatedAt: serverTimestamp(),
+    }, { merge: true });
+    // Read back immediately to verify the write succeeded (diagnostic)
+    try {
+      const written = await getDoc(ratingRef);
+      console.debug('[Firestore] setItemRating wrote ->', refPath, written.exists() ? written.data() : null);
+    } catch (readErr) {
+      console.warn('[Firestore] setItemRating: could not read back', refPath, readErr);
+    }
+  } catch (error) {
+    console.error('[Firestore] setItemRating failed at', refPath, error);
+    throw error;
+  }
+}
+
+export async function fetchItemRatings(itemId: string, userId?: string): Promise<{ avgRating: number; userRating?: number; count: number }> {
+  const snapshot = await getDocs(collection(db, 'items', itemId, 'ratings'));
+  if (snapshot.empty) return { avgRating: 0, userRating: undefined, count: 0 };
+
+  let sum = 0;
+  let count = 0;
+  let userRating: number | undefined;
+  snapshot.docs.forEach((d) => {
+    const data = d.data() as { rating?: number; userId?: string };
+    const r = Number(data.rating ?? 0);
+    if (r > 0) {
+      sum += r;
+      count += 1;
+    }
+    if (userId && data.userId === userId) userRating = r;
+  });
+  const avgRating = count > 0 ? sum / count : 0;
+  return { avgRating, userRating, count };
+}
