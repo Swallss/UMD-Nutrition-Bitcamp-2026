@@ -10,8 +10,6 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import * as Google from 'expo-auth-session/providers/google';
-import * as WebBrowser from 'expo-web-browser';
 import {
   GoogleAuthProvider,
   onAuthStateChanged,
@@ -23,43 +21,42 @@ import { Colors, FONTS, Radii } from '@/constants/Colors';
 import { auth } from '@/lib/firebase';
 import { ensureUserProfile } from '@/lib/firestore';
 
-WebBrowser.maybeCompleteAuthSession();
+// Lazy-load the native Google Sign-In library so it is never required on web
+// (the module contains native code that doesn't exist in the web bundle).
+let _GoogleSignin: typeof import('@react-native-google-signin/google-signin').GoogleSignin | null = null;
+let _statusCodes: typeof import('@react-native-google-signin/google-signin').statusCodes | null = null;
+
+if (Platform.OS !== 'web') {
+  const gs = require('@react-native-google-signin/google-signin');
+  _GoogleSignin = gs.GoogleSignin;
+  _statusCodes  = gs.statusCodes;
+  _GoogleSignin!.configure({
+    iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
+    webClientId:
+      process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ??
+      '263060087857-menbal4r8rv9t5hdpfks3fj3k0rsb5p9.apps.googleusercontent.com',
+  });
+}
 
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
   const [isSigningIn, setIsSigningIn] = useState(false);
-  // Prevent double-navigation (onAuthStateChanged + response useEffect can both fire).
+  // Prevent double-navigation (onAuthStateChanged + sign-in handler can both fire).
   const hasRouted = useRef(false);
 
-  const webClientId =
-    process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ??
-    '263060087857-menbal4r8rv9t5hdpfks3fj3k0rsb5p9.apps.googleusercontent.com';
-
-  // Native-only: expo-auth-session handles the OAuth flow on iOS/Android.
-  const [request, response, promptAsync] = Google.useIdTokenAuthRequest({
-    clientId: webClientId,
-    webClientId: webClientId,
-    iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
-    androidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
-  });
-
   // ── Core navigation after a successful Google sign-in ────────────────────────
-  // signInWithPopup / signInWithCredential automatically creates a new Firebase
-  // Auth user on first sign-in. This additionally writes to Firestore `users`.
   const routeAfterGoogle = async (user: User) => {
     if (hasRouted.current) return;
     hasRouted.current = true;
 
-    let needsOnboarding = true; // safe default — show onboarding if unsure
+    let needsOnboarding = true;
     try {
       const result = await ensureUserProfile(user);
       needsOnboarding = result.needsOnboarding;
     } catch (err) {
-      // Firestore failed — most likely missing security rules.
-      // Detect new vs returning user via Firebase Auth metadata timestamps.
       const created  = new Date(user.metadata.creationTime  ?? 0).getTime();
       const lastSign = new Date(user.metadata.lastSignInTime ?? 0).getTime();
-      const isNew    = Math.abs(lastSign - created) < 10_000; // < 10 s apart = brand new
+      const isNew    = Math.abs(lastSign - created) < 10_000;
       needsOnboarding = isNew;
       console.warn(
         '[Login] ensureUserProfile failed — Firestore security rules may be blocking writes.\n' +
@@ -85,49 +82,20 @@ export default function LoginScreen() {
     };
   }, []);
 
-  // ── Native: finish credential exchange after expo-auth-session response ───────
-  useEffect(() => {
-    if (!response) return;
-    if (response.type === 'cancel' || response.type === 'dismiss') {
-      setIsSigningIn(false);
-      return;
-    }
-    if (response.type !== 'success') {
-      setIsSigningIn(false);
-      Alert.alert('Sign-in cancelled', 'Please try again.');
-      return;
-    }
-    (async () => {
-      try {
-        const { id_token } = response.params;
-        const credential = GoogleAuthProvider.credential(id_token);
-        // signInWithCredential automatically creates a new Firebase Auth user
-        // if this Google account has never signed in before.
-        const { user } = await signInWithCredential(auth, credential);
-        await routeAfterGoogle(user);
-      } catch (error) {
-        Alert.alert('Sign-in failed', error instanceof Error ? error.message : 'Please try again.');
-        hasRouted.current = false; // allow retry
-        setIsSigningIn(false);
-      }
-    })();
-  }, [response]);
-
   // ── Button handler ────────────────────────────────────────────────────────────
   const handleSignIn = async () => {
     if (Platform.OS === 'web') {
-      // signInWithPopup is far more reliable than signInWithRedirect for web:
-      // it opens a small window, completes OAuth, then closes — no full-page
-      // navigation means the app state is preserved and onAuthStateChanged fires
-      // cleanly. New Google accounts are automatically added to Firebase Auth.
+      // Web: signInWithPopup is reliable — no full-page navigation, state preserved.
       try {
         setIsSigningIn(true);
         const provider = new GoogleAuthProvider();
         const { user } = await signInWithPopup(auth, provider);
         await routeAfterGoogle(user);
       } catch (error: any) {
-        // popup_closed_by_user is not a real error — user just closed the popup.
-        if (error?.code !== 'auth/popup-closed-by-user' && error?.code !== 'auth/cancelled-popup-request') {
+        if (
+          error?.code !== 'auth/popup-closed-by-user' &&
+          error?.code !== 'auth/cancelled-popup-request'
+        ) {
           Alert.alert('Sign-in failed', error instanceof Error ? error.message : 'Please try again.');
         }
         hasRouted.current = false;
@@ -136,13 +104,25 @@ export default function LoginScreen() {
       return;
     }
 
-    // Native (iOS / Android)
-    if (!request) {
-      Alert.alert('Not ready', 'Google sign-in is still initialising. Please try again in a moment.');
+    // Native (iOS / Android) — @react-native-google-signin/google-signin
+    if (!_GoogleSignin) {
+      Alert.alert('Not ready', 'Google sign-in is still initialising. Please try again.');
       return;
     }
-    setIsSigningIn(true);
-    await promptAsync();
+    try {
+      setIsSigningIn(true);
+      await _GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: false });
+      const { data } = await _GoogleSignin.signIn();
+      const credential = GoogleAuthProvider.credential(data?.idToken ?? null);
+      const { user } = await signInWithCredential(auth, credential);
+      await routeAfterGoogle(user);
+    } catch (error: any) {
+      if (error?.code !== _statusCodes?.SIGN_IN_CANCELLED) {
+        Alert.alert('Sign-in failed', error instanceof Error ? error.message : 'Please try again.');
+      }
+      hasRouted.current = false;
+      setIsSigningIn(false);
+    }
   };
 
   // ── UI ────────────────────────────────────────────────────────────────────────
