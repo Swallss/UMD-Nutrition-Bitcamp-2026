@@ -1,0 +1,43 @@
+name: Weekly Scrape
+
+on:
+  # Runs every Monday at 3:00 AM UTC
+  # Cron syntax: minute hour day-of-month month day-of-week
+  schedule:
+    - cron: "0 3 * * 1"
+
+  # Can trigger the scrape manually from the GitHub Actions
+  # tab in the repository (testing + running on demand)
+  workflow_dispatch:
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Check out your repo code onto the GitHub runner machine
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      # Set up Python on the runner
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      # Install all dependencies your scraper needs
+      - name: Install dependencies
+        run: pip install firebase-admin requests beautifulsoup4 python-dotenv
+
+      # Write the Firebase service account key from the GitHub secret to a
+      # file on the runner. Don't store the actual .json file in the repo
+      # so instead, store the file's contents as a GitHub secret and write it to disk at runtime.
+      - name: Write Firebase key
+        run: echo "${{ secrets.FIREBASE_KEY_JSON }}" > serviceAccountKey.json
+
+      # Set the environment variable so the scraper knows where to find
+      # the key file.
+      - name: Run scraper
+        env:
+          FIREBASE_KEY_PATH: serviceAccountKey.json
+        run: python backend/scraper/scraper.py
