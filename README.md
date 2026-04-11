@@ -104,6 +104,7 @@ umd-nutrition-app/
 - [ ] Exercise logging with Strava API integration
 - [ ] Daily dining hall rankings
 - [ ] 5-star food item ratings
+- [ ] Business checking for dining halls
 
 ---
 
