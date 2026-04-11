@@ -1,44 +1,117 @@
-// Profile — body stats, nutrition goals, weekly chart, dietary preferences.
-import { useState } from 'react';
+// Profile - Firestore-backed metrics and derived nutrition goals.
+import { useEffect, useState } from 'react';
 import {
+  Alert,
   ScrollView,
   View,
   Text,
   TextInput,
   TouchableOpacity,
-  Switch,
   StyleSheet,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
+import { router } from 'expo-router';
+import { signOut } from 'firebase/auth';
 import { Colors, FONTS, Radii, Spacing } from '@/constants/Colors';
 import { MacroRingHero } from '@/components/MacroRing';
 import { MacroBar } from '@/components/MacroBar';
 import { HeroPattern } from '@/components/HeroPattern';
+import { mockUser, getTodayTotals, formatHeight } from '@/lib/mockData';
+import { auth } from '@/lib/firebase';
 import {
-  mockUser,
-  mockTodayLog,
-  getTodayTotals,
-  formatHeight,
-  formatActivityLevel,
-  type User,
-} from '@/lib/mockData';
+  fetchUserProfile,
+  fetchUserLogs,
+  saveUserProfile,
+  todayKey,
+  weeklyCaloriesFromLogs,
+  type ActivityLevel,
+  type DailyLogEntry,
+  type GoalType,
+  type Sex,
+  type UserProfile,
+} from '@/lib/firestore';
+import { calculateNutritionGoals } from '@/lib/nutritionGoals';
 
 const DAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+const ACTIVITY_LABELS: Record<ActivityLevel, string> = {
+  low: 'Low',
+  light: 'Light',
+  moderate: 'Moderate',
+  high: 'High',
+  very_high: 'Very High',
+};
+const GOAL_LABELS: Record<GoalType, string> = {
+  lose_weight: 'Lose Weight',
+  maintain_weight: 'Maintain',
+  gain_weight: 'Gain Weight',
+};
+const SEX_LABELS: Record<Sex, string> = {
+  male: 'Male',
+  female: 'Female',
+  other: 'Other',
+};
+const DEFAULT_PROFILE: UserProfile = {
+  displayName: mockUser.name,
+  email: mockUser.email,
+  metrics: {
+    activity_level: 'moderate',
+    age: mockUser.age,
+    current_weight_lbs: mockUser.weight,
+    goal_type: 'lose_weight',
+    height_in: mockUser.height,
+    sex: 'male',
+    target_weight_lbs: mockUser.weightTarget,
+  },
+};
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
-  const [user, setUser] = useState<User>(mockUser);
+  const [profile, setProfile] = useState<UserProfile>(DEFAULT_PROFILE);
+  const [uid, setUid] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
-  const totals = getTodayTotals(mockTodayLog);
+  const [logs, setLogs] = useState<DailyLogEntry[]>([]);
+  const totals = getTodayTotals(logs.filter((entry) => entry.date === todayKey()));
+  const goals = calculateNutritionGoals(profile);
+  const weeklyCalories = logs.length > 0 ? weeklyCaloriesFromLogs(logs) : mockUser.weeklyCalories;
+  const maxBar = Math.max(...weeklyCalories, 1);
 
-  const maxBar = Math.max(...user.weeklyCalories, 1);
+  useEffect(() => {
+    const unsubscribe = auth.onAuthStateChanged((user) => {
+      setUid(user?.uid ?? null);
+      if (!user) return;
+      fetchUserProfile(user.uid).then(setProfile).catch(() => undefined);
+      fetchUserLogs(user.uid).then(setLogs).catch(() => setLogs([]));
+    });
+    return unsubscribe;
+  }, []);
 
-  const updatePref = (key: keyof User['dietaryPreferences'], value: boolean) => {
-    setUser((prev) => ({
+  const updateMetric = <K extends keyof UserProfile['metrics']>(key: K, value: UserProfile['metrics'][K]) => {
+    setProfile((prev) => ({
       ...prev,
-      dietaryPreferences: { ...prev.dietaryPreferences, [key]: value },
+      metrics: { ...prev.metrics, [key]: value },
     }));
+  };
+
+  const handleEditToggle = async () => {
+    if (isEditing && uid) {
+      try {
+        await saveUserProfile(uid, profile);
+      } catch (error) {
+        Alert.alert('Could not save profile', error instanceof Error ? error.message : 'Please try again.');
+        return;
+      }
+    }
+    setIsEditing((v) => !v);
+  };
+
+  const handleSignOut = async () => {
+    try {
+      await signOut(auth);
+      router.replace('/(auth)/login' as any);
+    } catch (error) {
+      Alert.alert('Could not sign out', error instanceof Error ? error.message : 'Please try again.');
+    }
   };
 
   return (
@@ -47,98 +120,110 @@ export default function ProfileScreen() {
       contentContainerStyle={[styles.content, { paddingBottom: 100 }]}
       showsVerticalScrollIndicator={false}
     >
-      {/* ── Hero ──────────────────────────────────────────────────────────── */}
       <View style={[styles.hero, { paddingTop: insets.top + 20 }]}>
         <HeroPattern opacity={0.13} />
         <View style={styles.heroInner}>
           <View style={styles.heroLeft}>
             <View style={styles.idPill}>
-              <Text style={styles.idText}>Student ID: {user.id}</Text>
+              <Text style={styles.idText}>User ID: {uid ?? 'not signed in'}</Text>
             </View>
-            <Text style={styles.heroName}>{user.name}</Text>
-            <Text style={styles.heroEmail}>{user.email}</Text>
+            <Text style={styles.heroName}>{profile.displayName}</Text>
+            <Text style={styles.heroEmail}>{profile.email}</Text>
           </View>
-          <MacroRingHero consumed={totals.calories} goal={user.calorieGoal} size={96} strokeWidth={9} />
+          <MacroRingHero consumed={totals.calories} goal={goals.calorieGoal} size={96} strokeWidth={9} />
         </View>
         <Text style={styles.heroSubLabel}>DAILY PROGRESS</Text>
       </View>
 
-      {/* ── Body Stats ────────────────────────────────────────────────────── */}
       <View style={styles.card}>
         <View style={styles.cardHeader}>
           <Text style={styles.cardTitle}>Body Stats</Text>
-          <TouchableOpacity onPress={() => setIsEditing((v) => !v)} style={styles.editBtn}>
-            <MaterialIcons
-              name={isEditing ? 'check' : 'edit'}
-              size={16}
-              color={Colors.primary}
-            />
-            <Text style={styles.editBtnText}>{isEditing ? 'Save' : 'Edit'}</Text>
-          </TouchableOpacity>
+          <View style={styles.headerActions}>
+            <TouchableOpacity onPress={handleSignOut} style={styles.editBtn}>
+              <MaterialIcons name="logout" size={16} color={Colors.primary} />
+              <Text style={styles.editBtnText}>Sign Out</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={handleEditToggle} style={styles.editBtn}>
+              <MaterialIcons name={isEditing ? 'check' : 'edit'} size={16} color={Colors.primary} />
+              <Text style={styles.editBtnText}>{isEditing ? 'Save' : 'Edit'}</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         <View style={styles.statsGrid}>
           <StatTile
             label="Height"
-            value={formatHeight(user.height)}
+            value={formatHeight(profile.metrics.height_in)}
             editing={isEditing}
-            onChangeText={(v) => setUser((p) => ({ ...p, height: parseInt(v) || p.height }))}
-            rawValue={String(user.height)}
+            onChangeText={(v) => updateMetric('height_in', parseInt(v, 10) || profile.metrics.height_in)}
+            rawValue={String(profile.metrics.height_in)}
             hint="inches"
           />
           <StatTile
             label="Weight"
-            value={`${user.weight} lbs`}
+            value={`${profile.metrics.current_weight_lbs} lbs`}
             editing={isEditing}
-            onChangeText={(v) => setUser((p) => ({ ...p, weight: parseInt(v) || p.weight }))}
-            rawValue={String(user.weight)}
+            onChangeText={(v) => updateMetric('current_weight_lbs', parseInt(v, 10) || profile.metrics.current_weight_lbs)}
+            rawValue={String(profile.metrics.current_weight_lbs)}
             hint="lbs"
           />
           <StatTile
             label="Age"
-            value={`${user.age} yrs`}
+            value={`${profile.metrics.age} yrs`}
             editing={isEditing}
-            onChangeText={(v) => setUser((p) => ({ ...p, age: parseInt(v) || p.age }))}
-            rawValue={String(user.age)}
+            onChangeText={(v) => updateMetric('age', parseInt(v, 10) || profile.metrics.age)}
+            rawValue={String(profile.metrics.age)}
             hint="years"
           />
           <StatTile
-            label="Activity"
-            value={formatActivityLevel(user.activityLevel)}
-            editing={false}
+            label="Target"
+            value={`${profile.metrics.target_weight_lbs} lbs`}
+            editing={isEditing}
+            onChangeText={(v) => updateMetric('target_weight_lbs', parseInt(v, 10) || profile.metrics.target_weight_lbs)}
+            rawValue={String(profile.metrics.target_weight_lbs)}
+            hint="lbs"
           />
         </View>
+
+        {isEditing ? (
+          <>
+            <SelectorRow label="Sex" options={Object.keys(SEX_LABELS) as Sex[]} value={profile.metrics.sex} labels={SEX_LABELS} onSelect={(value) => updateMetric('sex', value)} />
+            <SelectorRow label="Activity Level" options={Object.keys(ACTIVITY_LABELS) as ActivityLevel[]} value={profile.metrics.activity_level} labels={ACTIVITY_LABELS} onSelect={(value) => updateMetric('activity_level', value)} />
+            <SelectorRow label="Goal" options={Object.keys(GOAL_LABELS) as GoalType[]} value={profile.metrics.goal_type} labels={GOAL_LABELS} onSelect={(value) => updateMetric('goal_type', value)} />
+          </>
+        ) : (
+          <View style={styles.staticMetaRow}>
+            <Text style={styles.staticMeta}>{SEX_LABELS[profile.metrics.sex]}</Text>
+            <Text style={styles.staticMeta}>{ACTIVITY_LABELS[profile.metrics.activity_level]}</Text>
+            <Text style={styles.staticMeta}>{GOAL_LABELS[profile.metrics.goal_type]}</Text>
+          </View>
+        )}
       </View>
 
-      {/* ── Nutrition Goals ───────────────────────────────────────────────── */}
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Nutrition Goals</Text>
-
         <View style={styles.goalRow}>
           <Text style={styles.goalLabel}>Daily Calories</Text>
-          <Text style={styles.goalValue}>{user.calorieGoal} kcal</Text>
+          <Text style={styles.goalValue}>{goals.calorieGoal} kcal</Text>
         </View>
-
         <View style={styles.macrosSection}>
-          <MacroBar label="Protein" consumed={totals.protein} goal={user.proteinGoal} color={Colors.primary} />
-          <MacroBar label="Carbs" consumed={totals.carbs} goal={user.carbGoal} color={Colors.secondaryFixedDim} />
-          <MacroBar label="Fat" consumed={totals.fat} goal={user.fatGoal} color={Colors.tertiary} />
+          <MacroBar label="Protein" consumed={totals.protein} goal={goals.proteinGoal} color={Colors.primary} />
+          <MacroBar label="Carbs" consumed={totals.carbs} goal={goals.carbGoal} color={Colors.secondaryFixedDim} />
+          <MacroBar label="Fat" consumed={totals.fat} goal={goals.fatGoal} color={Colors.tertiary} />
         </View>
-
-        <View style={[styles.goalRow, { marginTop: 4, borderTopWidth: 1, borderTopColor: Colors.surfaceContainerLow, paddingTop: 12 }]}>
+        <View style={[styles.goalRow, styles.goalDivider]}>
           <Text style={styles.goalLabel}>Target Weight</Text>
-          <Text style={styles.goalValue}>{user.weightTarget} lbs</Text>
+          <Text style={styles.goalValue}>{profile.metrics.target_weight_lbs} lbs</Text>
         </View>
       </View>
 
-      {/* ── Weekly Calorie Chart ──────────────────────────────────────────── */}
       <View style={styles.chartCard}>
         <Text style={styles.chartTitle}>Weekly Trend</Text>
         <Text style={styles.chartSub}>
-          Avg {Math.round(user.weeklyCalories.reduce((a, b) => a + b, 0) / 7)} kcal/day
+          Avg {Math.round(weeklyCalories.reduce((a, b) => a + b, 0) / 7)} kcal/day
         </Text>
         <View style={styles.barChart}>
-          {user.weeklyCalories.map((val, i) => {
+          {weeklyCalories.map((val, i) => {
             const isToday = i === 6;
             const h = Math.max((val / maxBar) * 72, 4);
             return (
@@ -148,9 +233,7 @@ export default function ProfileScreen() {
                     styles.bar,
                     {
                       height: h,
-                      backgroundColor: isToday
-                        ? `${Colors.onSecondaryFixed}55`
-                        : `${Colors.onSecondaryFixed}22`,
+                      backgroundColor: isToday ? `${Colors.onSecondaryFixed}55` : `${Colors.onSecondaryFixed}22`,
                     },
                   ]}
                 />
@@ -160,37 +243,40 @@ export default function ProfileScreen() {
           })}
         </View>
       </View>
-
-      {/* ── Dietary Preferences ───────────────────────────────────────────── */}
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Dietary Preferences</Text>
-        <View style={styles.prefList}>
-          {(
-            [
-              ['vegetarian', 'Vegetarian'],
-              ['vegan', 'Vegan'],
-              ['glutenFree', 'Gluten Free'],
-              ['dairyFree', 'Dairy Free'],
-            ] as [keyof User['dietaryPreferences'], string][]
-          ).map(([key, label]) => (
-            <View key={key} style={styles.prefRow}>
-              <Text style={styles.prefLabel}>{label}</Text>
-              <Switch
-                value={user.dietaryPreferences[key]}
-                onValueChange={(v) => updatePref(key, v)}
-                trackColor={{ false: Colors.surfaceContainerHigh, true: Colors.primary }}
-                thumbColor={Colors.onPrimary}
-                ios_backgroundColor={Colors.surfaceContainerHigh}
-              />
-            </View>
-          ))}
-        </View>
-      </View>
     </ScrollView>
   );
 }
 
-// ── StatTile sub-component ────────────────────────────────────────────────────
+function SelectorRow<T extends string>({
+  label,
+  options,
+  value,
+  labels,
+  onSelect,
+}: {
+  label: string;
+  options: T[];
+  value: T;
+  labels: Record<T, string>;
+  onSelect: (value: T) => void;
+}) {
+  return (
+    <View style={styles.selectorGroup}>
+      <Text style={styles.selectorLabel}>{label}</Text>
+      <View style={styles.selectorRow}>
+        {options.map((option) => {
+          const isActive = option === value;
+          return (
+            <TouchableOpacity key={option} onPress={() => onSelect(option)} style={[styles.selectorChip, isActive && styles.selectorChipActive]}>
+              <Text style={[styles.selectorChipText, isActive && styles.selectorChipTextActive]}>{labels[option]}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
 function StatTile({
   label,
   value,
@@ -259,8 +345,6 @@ const tileStyles = StyleSheet.create({
 const styles = StyleSheet.create({
   scroll: { flex: 1, backgroundColor: Colors.surface },
   content: { gap: 0 },
-
-  // Hero
   hero: {
     backgroundColor: Colors.primary,
     paddingHorizontal: Spacing.xl,
@@ -296,8 +380,6 @@ const styles = StyleSheet.create({
     letterSpacing: 2,
     color: 'rgba(255,255,255,0.6)',
   },
-
-  // Card
   card: {
     backgroundColor: Colors.surfaceContainerLowest,
     borderRadius: Radii.card,
@@ -316,6 +398,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap: 8,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+    gap: 8,
+    flexShrink: 1,
   },
   cardTitle: {
     fontFamily: FONTS.extraBold,
@@ -336,20 +426,55 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: Colors.primary,
   },
-
   statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-
-  // Goals
+  staticMetaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  staticMeta: {
+    backgroundColor: Colors.surfaceContainerHigh,
+    borderRadius: Radii.chip,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    fontFamily: FONTS.bold,
+    fontSize: 12,
+    color: Colors.onSurfaceVariant,
+  },
+  selectorGroup: { gap: 8 },
+  selectorLabel: {
+    fontFamily: FONTS.extraBold,
+    fontSize: 12,
+    color: Colors.onSurface,
+  },
+  selectorRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  selectorChip: {
+    backgroundColor: Colors.surfaceContainerHigh,
+    borderRadius: Radii.chip,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  selectorChipActive: { backgroundColor: Colors.secondaryFixed },
+  selectorChipText: {
+    fontFamily: FONTS.bold,
+    fontSize: 12,
+    color: Colors.onSurfaceVariant,
+  },
+  selectorChipTextActive: { color: Colors.onSecondaryFixed },
   goalRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  goalDivider: {
+    marginTop: 4,
+    borderTopWidth: 1,
+    borderTopColor: Colors.surfaceContainerLow,
+    paddingTop: 12,
+  },
   goalLabel: { fontFamily: FONTS.semiBold, fontSize: 14, color: Colors.onSurface },
   goalValue: { fontFamily: FONTS.extraBold, fontSize: 14, color: Colors.primary },
   macrosSection: { gap: 0 },
-
-  // Weekly chart
   chartCard: {
     backgroundColor: Colors.secondaryFixed,
     borderRadius: Radii.card,
@@ -375,17 +500,4 @@ const styles = StyleSheet.create({
     color: Colors.onSecondaryFixedVariant,
     letterSpacing: 0.3,
   },
-
-  // Preferences
-  prefList: { gap: 4 },
-  prefRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: Colors.surfaceContainerLow,
-    borderRadius: Radii.innerCard,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 10,
-  },
-  prefLabel: { fontFamily: FONTS.semiBold, fontSize: 14, color: Colors.onSurface },
 });

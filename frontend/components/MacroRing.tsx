@@ -1,5 +1,5 @@
 // Circular SVG progress ring — calorie summary on Dashboard and Profile hero.
-import { View, StyleSheet } from 'react-native';
+import { View } from 'react-native';
 import Svg, { Circle, Text as SvgText } from 'react-native-svg';
 import { Colors, FONTS } from '@/constants/Colors';
 
@@ -9,7 +9,6 @@ interface Props {
   size?: number;
   strokeWidth?: number;
 }
-
 export function MacroRing({ consumed, goal, size = 160, strokeWidth = 14 }: Props) {
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
@@ -17,6 +16,7 @@ export function MacroRing({ consumed, goal, size = 160, strokeWidth = 14 }: Prop
   const dashOffset = circumference * (1 - progress);
   const cx = size / 2;
   const cy = size / 2;
+  const labelX = cx - 2;
   const pct = Math.round(progress * 100);
 
   return (
@@ -49,9 +49,10 @@ export function MacroRing({ consumed, goal, size = 160, strokeWidth = 14 }: Prop
         />
         {/* Centre % */}
         <SvgText
-          x={cx}
+          x={labelX}
           y={cy - 6}
           textAnchor="middle"
+          alignmentBaseline="middle"
           fontSize={28}
           fontFamily={FONTS.extraBold}
           fill={Colors.onSurface}
@@ -60,9 +61,10 @@ export function MacroRing({ consumed, goal, size = 160, strokeWidth = 14 }: Prop
         </SvgText>
         {/* Centre sub-label */}
         <SvgText
-          x={cx}
+          x={labelX}
           y={cy + 16}
           textAnchor="middle"
+          alignmentBaseline="middle"
           fontSize={11}
           fontFamily={FONTS.medium}
           fill={Colors.onSurfaceVariant}
@@ -82,6 +84,7 @@ export function MacroRingHero({ consumed, goal, size = 100, strokeWidth = 10 }: 
   const dashOffset = circumference * (1 - progress);
   const cx = size / 2;
   const cy = size / 2;
+  const labelX = cx - 1;
   const pct = Math.round(progress * 100);
 
   return (
@@ -104,15 +107,13 @@ export function MacroRingHero({ consumed, goal, size = 100, strokeWidth = 10 }: 
           strokeLinecap="round"
           rotation="-90" origin={`${cx}, ${cy}`}
         />
-        <SvgText x={cx} y={cy - 4} textAnchor="middle" fontSize={20} fontFamily={FONTS.extraBold} fill="#fff">
+        <SvgText x={labelX} y={cy - 4} textAnchor="middle" alignmentBaseline="middle" fontSize={20} fontFamily={FONTS.extraBold} fill="#fff">
           {pct}%
         </SvgText>
-        <SvgText x={cx} y={cy + 13} textAnchor="middle" fontSize={10} fontFamily={FONTS.medium} fill="rgba(255,255,255,0.7)">
+        <SvgText x={labelX} y={cy + 13} textAnchor="middle" alignmentBaseline="middle" fontSize={10} fontFamily={FONTS.medium} fill="rgba(255,255,255,0.7)">
           {consumed} cal
         </SvgText>
       </Svg>
     </View>
   );
 }
-
-const _styles = StyleSheet.create({});

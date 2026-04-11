@@ -1,5 +1,5 @@
 // Search — browse all UMD dining hall food items with filtering.
-import { useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -16,22 +16,42 @@ import { Colors, FONTS, Radii, Spacing } from '@/constants/Colors';
 import { FoodCard } from '@/components/FoodCard';
 import { DiningHallPicker } from '@/components/DiningHallPicker';
 import { mockFoodItems, type FoodItem } from '@/lib/mockData';
+import { auth } from '@/lib/firebase';
+import { addDailyLog, fetchFoodItems } from '@/lib/firestore';
 
 export default function SearchScreen() {
   const insets = useSafeAreaInsets();
   const inputRef = useRef<TextInput>(null);
   const [query, setQuery] = useState('');
   const [selectedHall, setSelectedHall] = useState<string | null>(null);
+  const [foodItems, setFoodItems] = useState<FoodItem[]>(mockFoodItems);
 
-  const filtered = mockFoodItems.filter((item) => {
+  useEffect(() => {
+    fetchFoodItems()
+      .then(setFoodItems)
+      .catch(() => setFoodItems(mockFoodItems));
+  }, []);
+
+  const filtered = foodItems.filter((item) => {
     const matchQuery =
       query.length === 0 || item.name.toLowerCase().includes(query.toLowerCase());
     const matchHall = selectedHall === null || item.diningHallId === selectedHall;
     return matchQuery && matchHall;
   });
 
-  const handleAdd = (item: FoodItem) => {
-    Alert.alert('Added to log!', item.name, [{ text: 'OK' }]);
+  const handleAdd = async (item: FoodItem) => {
+    const user = auth.currentUser;
+    if (!user) {
+      Alert.alert('Sign in required', 'Please sign in with Google before saving food logs.');
+      return;
+    }
+
+    try {
+      await addDailyLog(user.uid, item, 1, item.mealTime);
+      Alert.alert('Added to log!', item.name, [{ text: 'OK' }]);
+    } catch (error) {
+      Alert.alert('Could not add item', error instanceof Error ? error.message : 'Please try again.');
+    }
   };
 
   const ListHeader = (
@@ -39,7 +59,8 @@ export default function SearchScreen() {
       <DiningHallPicker selected={selectedHall} onSelect={setSelectedHall} />
       {query.length > 0 && (
         <Text style={styles.resultCount}>
-          {filtered.length} result{filtered.length !== 1 ? 's' : ''} for "{query}"
+          {filtered.length} result{filtered.length !== 1 ? 's' : ''} for{' '}
+          {`"${query}"`}
         </Text>
       )}
     </View>

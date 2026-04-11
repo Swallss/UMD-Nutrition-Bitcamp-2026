@@ -10,17 +10,17 @@ interface Props {
   item: FoodItem;
   mode?: 'compact' | 'full';
   onAdd?: (item: FoodItem) => void;
+  onRemove?: (item: FoodItem) => void;
   added?: boolean;
 }
 
 const HALL_NAMES: Record<string, string> = {
   yahentamitsi: 'Yahentamitsi',
-  'south-campus': 'South Campus',
-  '251-north': '251 North',
-  'the-south-point': 'The South Point',
+  'south-campus': 'South Campus Dining Hall',
+  '251-north': '251 North Dining Hall',
 };
 
-export function FoodCard({ item, mode = 'full', onAdd, added = false }: Props) {
+export function FoodCard({ item, mode = 'full', onAdd, onRemove, added = false }: Props) {
   const isCompact = mode === 'compact';
 
   return (
@@ -69,6 +69,16 @@ export function FoodCard({ item, mode = 'full', onAdd, added = false }: Props) {
               size={18}
               color={added ? Colors.onPrimary : Colors.primary}
             />
+          </TouchableOpacity>
+        )}
+
+        {isCompact && onRemove && (
+          <TouchableOpacity
+            onPress={() => onRemove(item)}
+            style={styles.removeBtn}
+            activeOpacity={0.75}
+          >
+            <MaterialIcons name="delete-outline" size={18} color={Colors.primary} />
           </TouchableOpacity>
         )}
       </View>
@@ -164,5 +174,14 @@ const styles = StyleSheet.create({
   },
   addBtnAdded: {
     backgroundColor: Colors.primary,
+  },
+  removeBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: Radii.pill,
+    backgroundColor: `${Colors.primary}12`,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 4,
   },
 });

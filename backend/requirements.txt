@@ -1,0 +1,5 @@
+beautifulsoup4
+firebase-admin
+pandas
+python-dotenv
+requests

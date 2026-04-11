@@ -1,1 +1,5 @@
 .env
+*.env
+backend/serviceAccountKey.json
+backend/*firebase-adminsdk*.json
+frontend/expo-dev*.log

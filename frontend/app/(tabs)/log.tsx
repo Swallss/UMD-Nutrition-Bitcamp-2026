@@ -1,6 +1,7 @@
 // Log Food — search + filter UMD dining items, add to today's log.
-import { useState, useCallback } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import {
+  Alert,
   View,
   Text,
   TextInput,
@@ -18,12 +19,14 @@ import { FoodCard } from '@/components/FoodCard';
 import { DiningHallPicker } from '@/components/DiningHallPicker';
 import {
   mockFoodItems,
-  mockTodayLog,
   getTodayTotals,
   getCurrentMealTime,
   type FoodItem,
+  type LogEntry,
   type MealTime,
 } from '@/lib/mockData';
+import { auth } from '@/lib/firebase';
+import { addDailyLog, fetchDailyLogs, fetchFoodItems } from '@/lib/firestore';
 
 const MEAL_TIMES: MealTime[] = ['Breakfast', 'Lunch', 'Dinner', 'Snack'];
 
@@ -32,14 +35,32 @@ export default function LogScreen() {
   const [query, setQuery] = useState('');
   const [selectedMeal, setSelectedMeal] = useState<MealTime>(getCurrentMealTime());
   const [selectedHall, setSelectedHall] = useState<string | null>(null);
-  const [addedIds, setAddedIds] = useState<Set<string>>(new Set());
-  const [loggedItems, setLoggedItems] = useState<FoodItem[]>([]);
+  const [foodItems, setFoodItems] = useState<FoodItem[]>(mockFoodItems);
+  const [todayLogs, setTodayLogs] = useState<LogEntry[]>([]);
+  const [pendingItems, setPendingItems] = useState<Record<string, { item: FoodItem; quantity: number }>>({});
+  const [isSaving, setIsSaving] = useState(false);
 
-  const baseTotals = getTodayTotals(mockTodayLog);
-  const sessionCalories = loggedItems.reduce((s, i) => s + i.calories, 0);
+  const baseTotals = getTodayTotals(todayLogs);
+  const pendingEntries = Object.values(pendingItems);
+  const sessionCalories = pendingEntries.reduce((s, entry) => s + entry.item.calories * entry.quantity, 0);
   const runningCalories = baseTotals.calories + sessionCalories;
 
-  const filtered = mockFoodItems.filter((item) => {
+  useEffect(() => {
+    fetchFoodItems()
+      .then(setFoodItems)
+      .catch(() => setFoodItems(mockFoodItems));
+
+    const unsubscribe = auth.onAuthStateChanged((user) => {
+      if (!user) {
+        setTodayLogs([]);
+        return;
+      }
+      fetchDailyLogs(user.uid).then(setTodayLogs).catch(() => setTodayLogs([]));
+    });
+    return unsubscribe;
+  }, []);
+
+  const filtered = foodItems.filter((item) => {
     const matchQuery = item.name.toLowerCase().includes(query.toLowerCase());
     const matchMeal = item.mealTime === selectedMeal;
     const matchHall = selectedHall === null || item.diningHallId === selectedHall;
@@ -47,16 +68,45 @@ export default function LogScreen() {
   });
 
   const handleAdd = useCallback((item: FoodItem) => {
-    if (!addedIds.has(item.id)) {
-      setAddedIds((prev) => new Set(prev).add(item.id));
-      setLoggedItems((prev) => [...prev, item]);
-    }
-  }, [addedIds]);
+    setPendingItems((prev) => ({
+      ...prev,
+      [item.id]: { item, quantity: (prev[item.id]?.quantity ?? 0) + 1 },
+    }));
+  }, []);
 
-  const handleConfirm = () => {
-    setAddedIds(new Set());
-    setLoggedItems([]);
-    router.replace('/(tabs)');
+  const updateQuantity = (itemId: string, delta: number) => {
+    setPendingItems((prev) => {
+      const entry = prev[itemId];
+      if (!entry) return prev;
+      const nextQuantity = entry.quantity + delta;
+      if (nextQuantity <= 0) {
+        const { [itemId]: _removed, ...rest } = prev;
+        return rest;
+      }
+      return { ...prev, [itemId]: { ...entry, quantity: nextQuantity } };
+    });
+  };
+
+  const handleConfirm = async () => {
+    const user = auth.currentUser;
+    if (!user) {
+      Alert.alert('Sign in required', 'Please sign in with Google before saving food logs.');
+      router.replace('/(auth)/login' as any);
+      return;
+    }
+
+    try {
+      setIsSaving(true);
+      await Promise.all(
+        pendingEntries.map((entry) => addDailyLog(user.uid, entry.item, entry.quantity, selectedMeal)),
+      );
+      setPendingItems({});
+      router.replace('/(tabs)');
+    } catch (error) {
+      Alert.alert('Could not save log', error instanceof Error ? error.message : 'Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const ListHeader = (
@@ -103,6 +153,31 @@ export default function LogScreen() {
       {/* Hall picker */}
       <DiningHallPicker selected={selectedHall} onSelect={setSelectedHall} />
 
+      {pendingEntries.length > 0 && (
+        <View style={styles.pendingBox}>
+          <Text style={styles.pendingTitle}>Ready to log</Text>
+          {pendingEntries.map(({ item, quantity }) => (
+            <View key={item.id} style={styles.pendingRow}>
+              <View style={styles.pendingInfo}>
+                <Text style={styles.pendingName} numberOfLines={1}>{item.name}</Text>
+                <Text style={styles.pendingMeta}>
+                  {Math.round(item.calories * quantity)} cal · {quantity} serving{quantity === 1 ? '' : 's'}
+                </Text>
+              </View>
+              <View style={styles.quantityControls}>
+                <TouchableOpacity onPress={() => updateQuantity(item.id, -1)} style={styles.quantityBtn}>
+                  <MaterialIcons name={quantity === 1 ? 'delete-outline' : 'remove'} size={18} color={Colors.primary} />
+                </TouchableOpacity>
+                <Text style={styles.quantityText}>{quantity}</Text>
+                <TouchableOpacity onPress={() => updateQuantity(item.id, 1)} style={styles.quantityBtn}>
+                  <MaterialIcons name="add" size={18} color={Colors.primary} />
+                </TouchableOpacity>
+              </View>
+            </View>
+          ))}
+        </View>
+      )}
+
       {/* Count */}
       <Text style={styles.countLabel}>
         {filtered.length} {filtered.length === 1 ? 'item' : 'items'}
@@ -132,7 +207,7 @@ export default function LogScreen() {
             item={item}
             mode="full"
             onAdd={handleAdd}
-            added={addedIds.has(item.id)}
+            added={Boolean(pendingItems[item.id])}
           />
         )}
         ListHeaderComponent={ListHeader}
@@ -150,15 +225,16 @@ export default function LogScreen() {
       />
 
       {/* Confirm FAB */}
-      {loggedItems.length > 0 && (
+      {pendingEntries.length > 0 && (
         <TouchableOpacity
           style={[styles.fab, { bottom: insets.bottom + 90 }]}
           onPress={handleConfirm}
           activeOpacity={0.9}
+          disabled={isSaving}
         >
           <MaterialIcons name="check" size={20} color={Colors.onPrimary} />
           <Text style={styles.fabText}>
-            Log {loggedItems.length} {loggedItems.length === 1 ? 'item' : 'items'}
+            {isSaving ? 'Saving...' : `Log ${pendingEntries.length} ${pendingEntries.length === 1 ? 'item' : 'items'}`}
           </Text>
         </TouchableOpacity>
       )}
@@ -246,6 +322,53 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Colors.primary,
     letterSpacing: 0.3,
+  },
+
+  pendingBox: {
+    backgroundColor: Colors.surfaceContainerLowest,
+    borderRadius: Radii.innerCard,
+    padding: Spacing.md,
+    gap: 10,
+  },
+  pendingTitle: {
+    fontFamily: FONTS.extraBold,
+    fontSize: 14,
+    color: Colors.onSurface,
+  },
+  pendingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  pendingInfo: { flex: 1 },
+  pendingName: {
+    fontFamily: FONTS.bold,
+    fontSize: 13,
+    color: Colors.onSurface,
+  },
+  pendingMeta: {
+    fontFamily: FONTS.medium,
+    fontSize: 11,
+    color: Colors.onSurfaceVariant,
+  },
+  quantityControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  quantityBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: Radii.pill,
+    backgroundColor: `${Colors.primary}12`,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quantityText: {
+    minWidth: 18,
+    textAlign: 'center',
+    fontFamily: FONTS.extraBold,
+    color: Colors.onSurface,
   },
 
   // Empty state

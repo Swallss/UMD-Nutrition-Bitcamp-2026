@@ -51,6 +51,7 @@ export interface FoodItem {
   mealTime: MealTime;
   dietaryTag: DietaryTag;
   station: string;
+  servingSize?: string;
 }
 
 export interface LogEntry {
@@ -103,24 +104,17 @@ export const mockDiningHalls: DiningHall[] = [
   },
   {
     id: 'south-campus',
-    name: 'South Campus',
-    location: 'Main Commons',
+    name: 'South Campus Dining Hall',
+    location: 'South Campus',
     isOpen: true,
     closingTime: '8:30 PM',
   },
   {
     id: '251-north',
-    name: '251 North',
+    name: '251 North Dining Hall',
     location: 'North Campus',
     isOpen: false,
     openingTime: 'Tomorrow 7:00 AM',
-  },
-  {
-    id: 'the-south-point',
-    name: 'The South Point',
-    location: 'South Campus',
-    isOpen: true,
-    closingTime: '10:00 PM',
   },
 ];
 
@@ -218,7 +212,7 @@ export const mockFoodItems: FoodItem[] = [
     protein: 8,
     carbs: 42,
     fat: 10,
-    diningHallId: 'the-south-point',
+    diningHallId: 'south-campus',
     mealTime: 'Snack',
     dietaryTag: 'Vegan',
     station: 'Salad Bar',
@@ -254,7 +248,7 @@ export const mockFoodItems: FoodItem[] = [
     protein: 36,
     carbs: 44,
     fat: 16,
-    diningHallId: 'the-south-point',
+    diningHallId: 'south-campus',
     mealTime: 'Dinner',
     dietaryTag: null,
     station: 'Wraps & More',
@@ -297,7 +291,7 @@ export const mockTodayLog: LogEntry[] = [
     carbs: 42,
     fat: 10,
     mealTime: 'Snack',
-    diningHallName: 'The South Point',
+    diningHallName: 'South Campus Dining Hall',
     loggedAt: '3:15 PM',
   },
   {

@@ -1,97 +1,147 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  ScrollView,
+  ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Platform,
+  ScrollView,
   StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as Google from 'expo-auth-session/providers/google';
+import * as WebBrowser from 'expo-web-browser';
+import {
+  GoogleAuthProvider,
+  getRedirectResult,
+  onAuthStateChanged,
+  signInWithCredential,
+  signInWithRedirect,
+  type User,
+} from 'firebase/auth';
 import { Colors, FONTS, Radii, Spacing } from '@/constants/Colors';
 import { HeroPattern } from '@/components/HeroPattern';
+import { auth } from '@/lib/firebase';
+import { ensureUserProfile } from '@/lib/firestore';
+
+WebBrowser.maybeCompleteAuthSession();
 
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [emailFocused, setEmailFocused] = useState(false);
-  const [passwordFocused, setPasswordFocused] = useState(false);
+  const [isSigningIn, setIsSigningIn] = useState(false);
+  const googleClientId =
+    process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ??
+    '263060087857-menbal4r8rv9t5hdpfks3fj3k0rsb5p9.apps.googleusercontent.com';
+  const [request, response, promptAsync] = Google.useIdTokenAuthRequest({
+    clientId: googleClientId,
+    webClientId: googleClientId,
+    iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID ?? googleClientId,
+    androidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID ?? googleClientId,
+  });
 
-  const handleSignIn = () => {
-    router.replace('/(tabs)');
+  const routeAfterGoogle = async (user: User) => {
+    const { needsOnboarding } = await ensureUserProfile(user);
+    router.replace((needsOnboarding ? '/(auth)/onboarding' : '/(tabs)') as any);
   };
 
+  useEffect(() => {
+    let isMounted = true;
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (!user || !isMounted) return;
+      try {
+        await routeAfterGoogle(user);
+      } catch (error) {
+        Alert.alert('Could not load account', error instanceof Error ? error.message : 'Please try again.');
+      } finally {
+        if (isMounted) setIsSigningIn(false);
+      }
+    });
+
+    if (Platform.OS === 'web') {
+      getRedirectResult(auth)
+        .then((result) => {
+          if (result?.user && isMounted) routeAfterGoogle(result.user);
+        })
+        .catch((error) => {
+          if (isMounted) {
+            Alert.alert('Could not finish Google sign-in', error instanceof Error ? error.message : 'Please try again.');
+          }
+        });
+    }
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
+  }, []);
+
+  const handleSignIn = async () => {
+    if (Platform.OS === 'web') {
+      try {
+        setIsSigningIn(true);
+        await signInWithRedirect(auth, new GoogleAuthProvider());
+      } catch (error) {
+        Alert.alert('Could not sign in', error instanceof Error ? error.message : 'Please try again.');
+        setIsSigningIn(false);
+      } finally {
+        // Redirect auth navigates away from this page on success.
+      }
+      return;
+    }
+
+    if (!request) {
+      Alert.alert('Google sign-in is not ready', 'Please try again after Expo finishes loading auth.');
+      return;
+    }
+    setIsSigningIn(true);
+    await promptAsync();
+  };
+
+  useEffect(() => {
+    const finishSignIn = async () => {
+      if (response?.type !== 'success') {
+        if (response?.type) setIsSigningIn(false);
+        return;
+      }
+
+      try {
+        const idToken = response.params.id_token;
+        const credential = GoogleAuthProvider.credential(idToken);
+        const result = await signInWithCredential(auth, credential);
+        await routeAfterGoogle(result.user);
+      } catch (error) {
+        Alert.alert('Could not sign in', error instanceof Error ? error.message : 'Please try again.');
+      } finally {
+        setIsSigningIn(false);
+      }
+    };
+
+    finishSignIn();
+  }, [response]);
+
   return (
-    <KeyboardAvoidingView
-      style={styles.root}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
+    <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <ScrollView bounces={false} showsVerticalScrollIndicator={false}>
-        {/* ── Hero ─────────────────────────────────────────────────────────── */}
         <View style={[styles.hero, { paddingTop: insets.top + 48 }]}>
           <HeroPattern opacity={0.14} />
           <Text style={styles.wordmark}>UMD Nutrition</Text>
           <Text style={styles.tagline}>Track every meal. Fuel every day.</Text>
         </View>
 
-        {/* ── Form card (overlaps hero) ─────────────────────────────────────── */}
         <View style={styles.card}>
           <Text style={styles.heading}>Welcome back</Text>
-          <Text style={styles.subheading}>Sign in to your account</Text>
+          <Text style={styles.subheading}>Sign in with your Google account.</Text>
 
-          <View style={styles.fields}>
-            {/* Email */}
-            <View style={[styles.inputWrap, emailFocused && styles.inputFocused]}>
-              <TextInput
-                style={styles.input}
-                placeholder="Email address"
-                placeholderTextColor={Colors.onSurfaceVariant}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoComplete="email"
-                value={email}
-                onChangeText={setEmail}
-                onFocus={() => setEmailFocused(true)}
-                onBlur={() => setEmailFocused(false)}
-              />
-            </View>
-
-            {/* Password */}
-            <View style={[styles.inputWrap, passwordFocused && styles.inputFocused]}>
-              <TextInput
-                style={styles.input}
-                placeholder="Password"
-                placeholderTextColor={Colors.onSurfaceVariant}
-                secureTextEntry
-                autoComplete="password"
-                value={password}
-                onChangeText={setPassword}
-                onFocus={() => setPasswordFocused(true)}
-                onBlur={() => setPasswordFocused(false)}
-              />
-            </View>
-
-            <TouchableOpacity style={styles.forgotWrap}>
-              <Text style={styles.forgotText}>Forgot password?</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Sign In CTA */}
-          <TouchableOpacity style={styles.cta} onPress={handleSignIn} activeOpacity={0.85}>
-            <Text style={styles.ctaText}>Sign In</Text>
+          <TouchableOpacity style={styles.cta} onPress={handleSignIn} activeOpacity={0.85} disabled={isSigningIn}>
+            {isSigningIn ? (
+              <ActivityIndicator color={Colors.onPrimary} />
+            ) : (
+              <Text style={styles.ctaText}>Continue with Google</Text>
+            )}
           </TouchableOpacity>
-
-          {/* Signup link */}
-          <View style={styles.signupRow}>
-            <Text style={styles.signupPrompt}>New here? </Text>
-            <TouchableOpacity onPress={() => router.push('/(auth)/signup' as any)}>
-              <Text style={styles.signupLink}>Create account</Text>
-            </TouchableOpacity>
-          </View>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -99,12 +149,7 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: Colors.primary,
-  },
-
-  // Hero
+  root: { flex: 1, backgroundColor: Colors.primary },
   hero: {
     backgroundColor: Colors.primary,
     paddingHorizontal: Spacing.xl,
@@ -124,8 +169,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: 'rgba(255,255,255,0.75)',
   },
-
-  // Card
   card: {
     backgroundColor: Colors.surfaceContainerLowest,
     borderTopLeftRadius: Radii.card,
@@ -134,56 +177,24 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.xl,
     paddingTop: Spacing.xl,
     paddingBottom: Spacing.xxl,
-    minHeight: 520,
+    minHeight: 420,
+    gap: Spacing.lg,
   },
   heading: {
     fontFamily: FONTS.extraBold,
     fontSize: 26,
     color: Colors.onSurface,
-    marginBottom: 4,
   },
   subheading: {
     fontFamily: FONTS.medium,
     fontSize: 14,
     color: Colors.onSurfaceVariant,
-    marginBottom: Spacing.xl,
   },
-
-  fields: { gap: 12 },
-
-  // Soft-fill input — surfaceContainerHighest bg, no border by default
-  inputWrap: {
-    backgroundColor: Colors.surfaceContainerHighest,
-    borderRadius: Radii.input,
-    borderWidth: 2,
-    borderColor: 'transparent',
-  },
-  inputFocused: {
-    backgroundColor: Colors.surfaceContainerLowest,
-    borderColor: Colors.primary,
-  },
-  input: {
-    fontFamily: FONTS.medium,
-    fontSize: 15,
-    color: Colors.onSurface,
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-  },
-
-  forgotWrap: { alignSelf: 'flex-end', marginTop: 4 },
-  forgotText: {
-    fontFamily: FONTS.semiBold,
-    fontSize: 13,
-    color: Colors.primary,
-  },
-
-  // Primary CTA — full-width red pill
   cta: {
     backgroundColor: Colors.primary,
     borderRadius: Radii.pill,
     paddingVertical: 16,
     alignItems: 'center',
-    marginTop: Spacing.lg,
     shadowColor: Colors.primary,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.25,
@@ -195,22 +206,5 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: Colors.onPrimary,
     letterSpacing: 0.5,
-  },
-
-  signupRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginTop: Spacing.lg,
-  },
-  signupPrompt: {
-    fontFamily: FONTS.medium,
-    fontSize: 14,
-    color: Colors.onSurfaceVariant,
-  },
-  signupLink: {
-    fontFamily: FONTS.bold,
-    fontSize: 14,
-    color: Colors.primary,
-    textDecorationLine: 'underline',
   },
 });

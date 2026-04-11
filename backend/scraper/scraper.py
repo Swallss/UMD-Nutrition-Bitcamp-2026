@@ -8,11 +8,18 @@ import time
 import os
 import random
 from datetime import date, timedelta
+from pathlib import Path
 from dotenv import load_dotenv
 
 # Firebase setup: load_dotenv() reads in the .env file in this directory, then we can securely use it with os.getenv()
 load_dotenv()
-cred = credentials.Certificate(os.getenv("FIREBASE_KEY_PATH"))
+backend_dir = Path(__file__).resolve().parents[1]
+default_cred_path = backend_dir / "serviceAccountKey.json"
+matching_cred_paths = list(backend_dir.glob("*firebase-adminsdk*.json"))
+cred_path = os.getenv("FIREBASE_KEY_PATH") or str(
+    default_cred_path if default_cred_path.exists() or not matching_cred_paths else matching_cred_paths[0]
+)
+cred = credentials.Certificate(cred_path)
 
 # Authenticate the program with Firebase using the service account key
 firebase_admin.initialize_app(cred)

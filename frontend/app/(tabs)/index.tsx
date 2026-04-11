@@ -1,12 +1,16 @@
 // Dashboard — daily calorie ring, macro bars, today's log, open dining halls.
-import { ScrollView, View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Alert, ScrollView, View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, FONTS, Radii, Spacing } from '@/constants/Colors';
 import { MacroRing } from '@/components/MacroRing';
 import { MacroBar } from '@/components/MacroBar';
 import { FoodCard } from '@/components/FoodCard';
 import { HeroPattern } from '@/components/HeroPattern';
-import { mockUser, mockTodayLog, mockDiningHalls, getTodayTotals } from '@/lib/mockData';
+import { mockUser, mockTodayLog, mockDiningHalls, getTodayTotals, type LogEntry } from '@/lib/mockData';
+import { auth } from '@/lib/firebase';
+import { calculateNutritionGoals } from '@/lib/nutritionGoals';
+import { fetchDailyLogs, fetchUserProfile, removeDailyLog, type DailyLogEntry, type UserProfile } from '@/lib/firestore';
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -27,8 +31,40 @@ function formatDate() {
 
 export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
-  const totals = getTodayTotals(mockTodayLog);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [todayLog, setTodayLog] = useState<(LogEntry | DailyLogEntry)[]>(mockTodayLog);
+  const totals = getTodayTotals(todayLog);
+  const goals = profile
+    ? calculateNutritionGoals(profile)
+    : {
+        calorieGoal: mockUser.calorieGoal,
+        proteinGoal: mockUser.proteinGoal,
+        carbGoal: mockUser.carbGoal,
+        fatGoal: mockUser.fatGoal,
+      };
   const openHalls = mockDiningHalls.filter((h) => h.isOpen);
+  const displayName = profile?.displayName ?? mockUser.name;
+
+  useEffect(() => {
+    const unsubscribe = auth.onAuthStateChanged((user) => {
+      if (!user) return;
+      fetchUserProfile(user.uid).then(setProfile).catch(() => undefined);
+      fetchDailyLogs(user.uid).then(setTodayLog).catch(() => setTodayLog(mockTodayLog));
+    });
+    return unsubscribe;
+  }, []);
+
+  const handleRemoveLog = async (item: LogEntry) => {
+    const user = auth.currentUser;
+    if (!user) return;
+
+    try {
+      await removeDailyLog(item.id);
+      setTodayLog((prev) => prev.filter((entry) => entry.id !== item.id));
+    } catch (error) {
+      Alert.alert('Could not remove item', error instanceof Error ? error.message : 'Please try again.');
+    }
+  };
 
   return (
     <ScrollView
@@ -41,34 +77,34 @@ export default function DashboardScreen() {
         <HeroPattern opacity={0.13} />
         <Text style={styles.heroOverline}>{DAYS[new Date().getDay()].toUpperCase()} · {formatDate().split(',')[1]?.trim()}</Text>
         <Text style={styles.heroGreeting}>{getGreeting()},</Text>
-        <Text style={styles.heroName}>{mockUser.name.split(' ')[0]}!</Text>
+        <Text style={styles.heroName}>{displayName.split(' ')[0]}!</Text>
       </View>
 
       {/* ── Calorie + Macro card ──────────────────────────────────────────── */}
       <View style={styles.macroCard}>
-        <Text style={styles.cardTitle}>Today's Progress</Text>
+        <Text style={styles.cardTitle}>{`Today's Progress`}</Text>
         <View style={styles.macroRow}>
           {/* Ring */}
-          <MacroRing consumed={totals.calories} goal={mockUser.calorieGoal} size={140} strokeWidth={13} />
+          <MacroRing consumed={totals.calories} goal={goals.calorieGoal} size={140} strokeWidth={13} />
 
           {/* Bars */}
           <View style={styles.barsCol}>
             <MacroBar
               label="Protein"
               consumed={totals.protein}
-              goal={mockUser.proteinGoal}
+              goal={goals.proteinGoal}
               color={Colors.primary}
             />
             <MacroBar
               label="Carbs"
               consumed={totals.carbs}
-              goal={mockUser.carbGoal}
+              goal={goals.carbGoal}
               color={Colors.secondaryFixedDim}
             />
             <MacroBar
               label="Fat"
               consumed={totals.fat}
-              goal={mockUser.fatGoal}
+              goal={goals.fatGoal}
               color={Colors.tertiary}
             />
           </View>
@@ -82,12 +118,12 @@ export default function DashboardScreen() {
           </View>
           <View style={[styles.summaryPill, styles.summaryPillGoal]}>
             <Text style={[styles.summaryValue, { color: Colors.onSecondaryFixed }]}>
-              {mockUser.calorieGoal - totals.calories}
+              {goals.calorieGoal - totals.calories}
             </Text>
             <Text style={[styles.summaryLabel, { color: Colors.onSecondaryFixedVariant }]}>Remaining</Text>
           </View>
           <View style={styles.summaryPill}>
-            <Text style={styles.summaryValue}>{mockUser.calorieGoal}</Text>
+            <Text style={styles.summaryValue}>{goals.calorieGoal}</Text>
             <Text style={styles.summaryLabel}>Goal</Text>
           </View>
         </View>
@@ -96,13 +132,13 @@ export default function DashboardScreen() {
       {/* ── Today's Log ───────────────────────────────────────────────────── */}
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Today's Log</Text>
+          <Text style={styles.sectionTitle}>{`Today's Log`}</Text>
           <TouchableOpacity>
             <Text style={styles.seeAll}>See all</Text>
           </TouchableOpacity>
         </View>
         <View style={styles.logList}>
-          {mockTodayLog.map((entry) => {
+          {todayLog.map((entry) => {
             const item = {
               id: entry.foodItemId,
               name: entry.foodName,
@@ -115,7 +151,7 @@ export default function DashboardScreen() {
               dietaryTag: null,
               station: '',
             } as const;
-            return <FoodCard key={entry.id} item={item} mode="compact" />;
+            return <FoodCard key={entry.id} item={item} mode="compact" onRemove={() => handleRemoveLog(entry)} />;
           })}
         </View>
       </View>
