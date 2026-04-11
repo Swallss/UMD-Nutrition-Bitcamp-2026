@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find \"/c/Code/Neeks-Bitcamp-2026/frontend\" -type f \\\\\\( -name \"*.tsx\" -o -name \"*.ts\" -o -name \"*.json\" -o -name \"*.js\" \\\\\\) ! -path \"*/node_modules/*\" -exec wc -l {} +)",
+      "Bash(npx tsc:*)"
+    ]
+  }
+}
