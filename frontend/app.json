@@ -19,7 +19,8 @@
             ]
           }
         ]
-      }
+      },
+      "googleServicesFile": "./GoogleService-Info.plist"
     },
     "android": {
       "package": "com.umdnutrition.app",
