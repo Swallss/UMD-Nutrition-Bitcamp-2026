@@ -197,7 +197,7 @@ export default function ProfileScreen() {
         <Text style={styles.heroSubLabel}>DAILY PROGRESS</Text>
       </View>
 
-      <View style={styles.card}>
+      <View style={[styles.card, styles.heroOverlapCard]}>
         <View style={styles.cardHeader}>
           <Text style={styles.cardTitle}>Body Stats</Text>
           <View style={styles.headerActions}>
@@ -421,7 +421,6 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surfaceContainerLowest,
     borderRadius: Radii.card,
     marginHorizontal: Spacing.md,
-    marginTop: -Radii.card,
     padding: Spacing.lg,
     gap: Spacing.md,
     shadowColor: '#000',
@@ -430,6 +429,9 @@ const styles = StyleSheet.create({
     shadowRadius: 20,
     elevation: 4,
     marginBottom: Spacing.md,
+  },
+  heroOverlapCard: {
+    marginTop: -Radii.card,
   },
   cardHeader: {
     flexDirection: 'row',
