@@ -12,13 +12,14 @@ interface Props {
 
 export function MacroBar({ label, consumed, goal, color, unit = 'g' }: Props) {
   const pct = goal > 0 ? Math.min((consumed / goal) * 100, 100) : 0;
+  const fmt = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
 
   return (
     <View style={styles.container}>
       <View style={styles.labelRow}>
         <Text style={styles.label}>{label}</Text>
         <Text style={styles.value}>
-          {consumed}{unit} / {goal}{unit}
+          {fmt(consumed)}{unit} / {fmt(goal)}{unit}
         </Text>
       </View>
       <View style={styles.track}>
