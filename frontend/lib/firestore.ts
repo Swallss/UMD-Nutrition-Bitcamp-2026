@@ -1,6 +1,5 @@
 import {
   Timestamp,
-  addDoc,
   collection,
   deleteDoc,
   doc,
@@ -16,10 +15,15 @@ import {
 } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import { db } from '@/lib/firebase';
-import { mockFoodItems, mockUser, type FoodItem, type LogEntry, type MealTime } from '@/lib/mockData';
+import { formatFoodName, mockFoodItems, mockUser, type FoodItem, type LogEntry, type MealTime } from '@/lib/mockData';
 
 export type ActivityLevel = 'low' | 'light' | 'moderate' | 'high' | 'very_high';
-export type GoalType = 'lose_weight' | 'maintain_weight' | 'gain_weight';
+export type GoalType =
+  | 'extreme_weight_loss'
+  | 'moderate_weight_loss'
+  | 'maintain_weight'
+  | 'moderate_weight_gain'
+  | 'extreme_weight_gain';
 export type Sex = 'male' | 'female' | 'other';
 
 export interface UserProfile {
@@ -48,11 +52,13 @@ export interface DailyLogEntry extends LogEntry {
   rating?: number;
 }
 
+export type DiningHallTraffic = Record<string, number[]>;
+
 const DEFAULT_METRICS: UserProfile['metrics'] = {
   activity_level: 'moderate',
   age: mockUser.age,
   current_weight_lbs: mockUser.weight,
-  goal_type: 'lose_weight',
+  goal_type: 'maintain_weight',
   height_in: mockUser.height,
   sex: 'male',
   target_weight_lbs: mockUser.weightTarget,
@@ -95,6 +101,7 @@ function normalizeProfile(
   user?: User,
 ): UserProfile {
   const m = data?.metrics ?? DEFAULT_METRICS;
+  const goalType = normalizeGoalType(m.goal_type);
   return {
     displayName: user?.displayName ?? data?.displayName ?? 'Terp',
     email:       user?.email       ?? data?.email       ?? '',
@@ -102,7 +109,7 @@ function normalizeProfile(
       activity_level:      m.activity_level      ?? DEFAULT_METRICS.activity_level,
       age:                 m.age                 ?? DEFAULT_METRICS.age,
       current_weight_lbs:  m.current_weight_lbs  ?? DEFAULT_METRICS.current_weight_lbs,
-      goal_type:           m.goal_type           ?? DEFAULT_METRICS.goal_type,
+      goal_type:           goalType,
       height_in:           m.height_in           ?? DEFAULT_METRICS.height_in,
       sex:                 m.sex                 ?? DEFAULT_METRICS.sex,
       target_weight_lbs:   m.target_weight_lbs   ?? DEFAULT_METRICS.target_weight_lbs,
@@ -113,6 +120,21 @@ function normalizeProfile(
   };
 }
 
+function normalizeGoalType(value: unknown): GoalType {
+  if (value === 'lose_weight') return 'moderate_weight_loss';
+  if (value === 'gain_weight') return 'moderate_weight_gain';
+  if (
+    value === 'extreme_weight_loss' ||
+    value === 'moderate_weight_loss' ||
+    value === 'maintain_weight' ||
+    value === 'moderate_weight_gain' ||
+    value === 'extreme_weight_gain'
+  ) {
+    return value;
+  }
+  return DEFAULT_METRICS.goal_type;
+}
+
 // ── Food items ────────────────────────────────────────────────────────────────
 
 export function mapItemDoc(id: string, data: Record<string, any>): FoodItem {
@@ -121,7 +143,7 @@ export function mapItemDoc(id: string, data: Record<string, any>): FoodItem {
   const diningHallId = LOCATION_TO_HALL[rawLoc] ?? LOCATION_TO_HALL[rawLoc.toUpperCase()] ?? rawLoc.toLowerCase();
   return {
     id,
-    name:        data.name        ?? 'Unknown item',
+    name:        formatFoodName(data.name ?? 'Unknown item'),
     calories:    Math.round(Number(data.calories       ?? 0)),
     protein:     Number(data.protein_g    ?? data.protein ?? 0),
     carbs:       Number(data.total_carbs_g ?? data.carbs   ?? 0),
@@ -153,6 +175,19 @@ export async function fetchFoodItems(): Promise<FoodItem[]> {
     return mockFoodItems;
   }
   return snapshot.docs.map((d) => mapItemDoc(d.id, d.data() as Record<string, any>));
+}
+
+export async function fetchDiningHallTraffic(): Promise<DiningHallTraffic> {
+  const snapshot = await getDocs(collection(db, 'diningHallTraffic'));
+  return snapshot.docs.reduce<DiningHallTraffic>((traffic, trafficDoc) => {
+    const data = trafficDoc.data();
+    if (Array.isArray(data.hourlyTraffic)) {
+      traffic[trafficDoc.id] = data.hourlyTraffic
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value));
+    }
+    return traffic;
+  }, {});
 }
 
 // ── User profile ──────────────────────────────────────────────────────────────
@@ -227,8 +262,7 @@ export async function saveUserProfile(uid: string, profile: UserProfile): Promis
 export async function fetchDailyLogs(userId: string, date = todayKey()): Promise<DailyLogEntry[]> {
   const snapshot = await getDocs(
     query(
-      collection(db, 'dailyLogs'),
-      where('userId', '==', userId),
+      collection(db, 'users', userId, 'dailyLogs'),
       where('date',   '==', date),
     ),
   );
@@ -238,7 +272,7 @@ export async function fetchDailyLogs(userId: string, date = todayKey()): Promise
       id:              d.id,
       userId,
       foodItemId:      data.foodItemId  ?? d.id,
-      foodName:        data.foodName    ?? 'Unknown',
+      foodName:        formatFoodName(data.foodName    ?? 'Unknown'),
       calories:        Number(data.calories  ?? 0),
       protein:         Number(data.protein   ?? 0),
       carbs:           Number(data.carbs     ?? 0),
@@ -257,7 +291,7 @@ export async function fetchDailyLogs(userId: string, date = todayKey()): Promise
 
 export async function fetchUserLogs(userId: string): Promise<DailyLogEntry[]> {
   const snapshot = await getDocs(
-    query(collection(db, 'dailyLogs'), where('userId', '==', userId), limit(500)),
+    query(collection(db, 'users', userId, 'dailyLogs'), orderBy('date', 'desc'), limit(500)),
   );
   return snapshot.docs.map((d) => {
     const data = d.data();
@@ -265,7 +299,7 @@ export async function fetchUserLogs(userId: string): Promise<DailyLogEntry[]> {
       id:              d.id,
       userId,
       foodItemId:      data.foodItemId  ?? d.id,
-      foodName:        data.foodName    ?? 'Unknown',
+      foodName:        formatFoodName(data.foodName    ?? 'Unknown'),
       calories:        Number(data.calories  ?? 0),
       protein:         Number(data.protein   ?? 0),
       carbs:           Number(data.carbs     ?? 0),
@@ -302,10 +336,11 @@ export async function addDailyLog(
   quantity: number,
   mealTime: MealTime,
 ): Promise<void> {
-  await addDoc(collection(db, 'dailyLogs'), {
+  const logRef = doc(collection(db, 'users', userId, 'dailyLogs'));
+  const logData = {
     userId,
     foodItemId:     item.id,
-    foodName:       item.name,
+    foodName:       formatFoodName(item.name),
     calories:       Math.round(item.calories * quantity),
     protein:        Number((item.protein * quantity).toFixed(1)),
     carbs:          Number((item.carbs   * quantity).toFixed(1)),
@@ -318,13 +353,24 @@ export async function addDailyLog(
     loggedAt:       new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
     loggedAtTimestamp: serverTimestamp(),
     rating:         0,
-  });
+  };
+
+  try {
+    await setDoc(logRef, logData);
+  } catch (error) {
+    const code =
+      typeof error === 'object' && error !== null && 'code' in error
+        ? String((error as { code?: unknown }).code)
+        : 'unknown';
+    const message = error instanceof Error ? error.message : 'Unknown Firestore error';
+    throw new Error(`Firestore write failed at ${logRef.path} (${code}): ${message}`);
+  }
 }
 
-export async function updateLogRating(logId: string, rating: number): Promise<void> {
-  await updateDoc(doc(db, 'dailyLogs', logId), { rating });
+export async function updateLogRating(userId: string, logId: string, rating: number): Promise<void> {
+  await updateDoc(doc(db, 'users', userId, 'dailyLogs', logId), { rating });
 }
 
-export async function removeDailyLog(logId: string): Promise<void> {
-  await deleteDoc(doc(db, 'dailyLogs', logId));
+export async function removeDailyLog(userId: string, logId: string): Promise<void> {
+  await deleteDoc(doc(db, 'users', userId, 'dailyLogs', logId));
 }

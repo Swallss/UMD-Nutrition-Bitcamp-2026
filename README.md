@@ -84,8 +84,36 @@ umd-nutrition-app/
 |---|---|
 | `users` | Profile info, body stats, calorie/macro goals |
 | `foodItems` | Scraped nutrition data + any user-submitted items |
-| `dailyLogs` | Per-user, per-day food entries |
+| `users/{uid}/dailyLogs` | Per-user, per-day food entries |
 | `reviews` | Star ratings on food items (nice-to-have) |
+
+---
+
+## Firestore Rules Needed For Logging
+
+Food logs are stored under each user, not in a top-level `dailyLogs` collection:
+
+```js
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /items/{id} {
+      allow read: if true;
+    }
+
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+
+      match /dailyLogs/{logId} {
+        allow read, write, delete: if request.auth != null && request.auth.uid == userId;
+      }
+    }
+  }
+}
+```
+
+The second rule is required because Firestore rules do not automatically apply to subcollections.
 
 ---
 

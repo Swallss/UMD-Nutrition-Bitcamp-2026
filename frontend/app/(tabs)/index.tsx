@@ -1,8 +1,10 @@
 // Dashboard — daily calorie ring, macro bars, today's log, dining halls.
 import { useEffect, useState, useCallback } from 'react';
 import { useFocusEffect } from 'expo-router';
-import { Alert, ScrollView, View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { Alert, ScrollView, View, Text, TouchableOpacity, StyleSheet, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { MaterialIcons } from '@expo/vector-icons';
+import { signOut } from 'firebase/auth';
 import { Colors, FONTS, Radii, Spacing } from '@/constants/Colors';
 import { MacroRing } from '@/components/MacroRing';
 import { MacroBar } from '@/components/MacroBar';
@@ -13,15 +15,23 @@ import { auth } from '@/lib/firebase';
 import { calculateNutritionGoals } from '@/lib/nutritionGoals';
 import {
   fetchDailyLogs,
+  fetchDiningHallTraffic,
   fetchUserProfile,
   removeDailyLog,
   updateLogRating,
   type DailyLogEntry,
+  type DiningHallTraffic,
   type UserProfile,
 } from '@/lib/firestore';
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const LOG_PREVIEW_COUNT = 3;
+const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
+const BUSY_HISTOGRAMS: Record<string, number[]> = {
+  yahentamitsi: [5, 4, 3, 3, 4, 8, 28, 42, 35, 28, 45, 76, 84, 62, 39, 34, 48, 70, 78, 54, 28, 12, 8, 6],
+  'south-campus': [4, 3, 3, 3, 4, 9, 31, 48, 38, 30, 52, 82, 88, 67, 41, 38, 56, 80, 74, 58, 30, 14, 8, 5],
+  '251-north': [3, 3, 2, 2, 3, 7, 20, 32, 29, 24, 41, 68, 76, 60, 44, 40, 52, 73, 70, 50, 24, 10, 6, 4],
+};
 
 function getGreeting() {
   const h = new Date().getHours();
@@ -38,11 +48,113 @@ function formatDate() {
   });
 }
 
+function minutesFromTime(time?: string) {
+  if (!time) return null;
+  const match = time.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (!match) return null;
+  const [, hourRaw, minuteRaw, periodRaw] = match;
+  let hour = Number(hourRaw);
+  const minute = Number(minuteRaw);
+  const period = periodRaw.toUpperCase();
+  if (period === 'PM' && hour !== 12) hour += 12;
+  if (period === 'AM' && hour === 12) hour = 0;
+  return hour * 60 + minute;
+}
+
+function isOpenNow(opening?: string, closing?: string) {
+  const open = minutesFromTime(opening);
+  const close = minutesFromTime(closing);
+  if (open === null || close === null) return true;
+  const now = new Date();
+  const current = now.getHours() * 60 + now.getMinutes();
+  return current >= open && current < close;
+}
+
+function getHourlyTraffic(values: number[]) {
+  if (values.length >= 24) return values.slice(0, 24);
+  return HOURS.map((_, index) => values[index % Math.max(values.length, 1)] ?? 0);
+}
+
+function getOpenHours(opening?: string, closing?: string) {
+  const open = minutesFromTime(opening);
+  const close = minutesFromTime(closing);
+  if (open === null || close === null) return HOURS;
+
+  const openHour = Math.floor(open / 60);
+  const closeHour = Math.ceil(close / 60);
+  if (openHour === closeHour) return HOURS;
+  if (closeHour < openHour) {
+    return [
+      ...Array.from({ length: 24 - openHour }, (_, index) => openHour + index),
+      ...Array.from({ length: closeHour }, (_, index) => index),
+    ];
+  }
+  return Array.from({ length: closeHour - openHour }, (_, index) => openHour + index);
+}
+
+function getClosingHour(closing?: string) {
+  const close = minutesFromTime(closing);
+  if (close === null) return 23;
+  return Math.ceil(close / 60) % 24;
+}
+
+function formatHourLabel(hour: number) {
+  if (hour === 0) return '12a';
+  if (hour === 12) return '12p';
+  if (hour < 12) return `${hour}a`;
+  return `${hour - 12}p`;
+}
+
+function BusyHistogram({
+  values,
+  opening,
+  closing,
+  compact = false,
+}: {
+  values: number[];
+  opening?: string;
+  closing?: string;
+  compact?: boolean;
+}) {
+  const hourly = getHourlyTraffic(values);
+  const openHours = getOpenHours(opening, closing);
+  const currentHour = new Date().getHours();
+  const bars = openHours.map((hour) => ({ hour, value: hourly[hour] ?? 0 }));
+  const closingHour = getClosingHour(closing);
+  const max = Math.max(...bars.map((bar) => bar.value), 1);
+  return (
+    <View>
+      <View style={[styles.histogram, compact && styles.histogramCompact]}>
+        {bars.map(({ hour, value }) => {
+          const isCurrentHour = hour === currentHour;
+          return (
+            <View key={`${hour}-${value}`} style={styles.histogramSlot}>
+              <View
+                style={[
+                  styles.histogramBar,
+                  isCurrentHour && styles.histogramBarNow,
+                  { height: Math.max((value / max) * (compact ? 38 : 46), 5) },
+                ]}
+              />
+            </View>
+          );
+        })}
+      </View>
+      <View style={styles.histogramAxis}>
+        <Text style={styles.histogramAxisText}>{formatHourLabel(openHours[0] ?? 0)}</Text>
+        <Text style={styles.histogramAxisText}>{formatHourLabel(closingHour)}</Text>
+      </View>
+    </View>
+  );
+}
+
 export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [todayLog, setTodayLog] = useState<(LogEntry | DailyLogEntry)[]>([]);
   const [showAllLog, setShowAllLog] = useState(false);
+  const [trafficByHall, setTrafficByHall] = useState<DiningHallTraffic>({});
 
   const totals = getTodayTotals(todayLog);
   const goals = profile
@@ -51,16 +163,20 @@ export default function DashboardScreen() {
 
   const displayName = profile?.displayName ?? 'Terp';
   const visibleLog = showAllLog ? todayLog : todayLog.slice(0, LOG_PREVIEW_COUNT);
+  const isPhoneLayout = width < 700;
+  const hallCardWidth = isPhoneLayout ? '100%' : width >= 900 ? '32.5%' : '48.5%';
 
   const refreshDashboard = useCallback(async () => {
     const user = auth.currentUser;
     if (!user) return;
-    const [nextProfile, nextLog] = await Promise.all([
+    const [nextProfile, nextLog, nextTraffic] = await Promise.all([
       fetchUserProfile(user.uid),
       fetchDailyLogs(user.uid),
+      fetchDiningHallTraffic().catch(() => ({})),
     ]);
     setProfile(nextProfile);
     setTodayLog(nextLog);
+    setTrafficByHall(nextTraffic);
   }, []);
 
   useEffect(() => {
@@ -81,7 +197,7 @@ export default function DashboardScreen() {
     const user = auth.currentUser;
     if (!user) return;
     try {
-      await removeDailyLog(entry.id);
+      await removeDailyLog(user.uid, entry.id);
       setTodayLog((prev) => prev.filter((e) => e.id !== entry.id));
     } catch (error) {
       Alert.alert('Could not remove item', error instanceof Error ? error.message : 'Please try again.');
@@ -89,13 +205,23 @@ export default function DashboardScreen() {
   }, []);
 
   const handleRate = useCallback(async (entry: LogEntry | DailyLogEntry, rating: number) => {
+    const user = auth.currentUser;
+    if (!user) return;
     try {
-      await updateLogRating(entry.id, rating);
+      await updateLogRating(user.uid, entry.id, rating);
       setTodayLog((prev) =>
         prev.map((e) => (e.id === entry.id ? { ...e, rating } : e)),
       );
     } catch {
       // Silently fail for ratings
+    }
+  }, []);
+
+  const handleSignOut = useCallback(async () => {
+    try {
+      await signOut(auth);
+    } catch (error) {
+      Alert.alert('Could not sign out', error instanceof Error ? error.message : 'Please try again.');
     }
   }, []);
 
@@ -108,7 +234,16 @@ export default function DashboardScreen() {
       {/* ── Hero ──────────────────────────────────────────────────────────── */}
       <View style={[styles.hero, { paddingTop: insets.top + 20 }]}>
         <HeroPattern opacity={0.13} />
-        <Text style={styles.heroOverline}>{DAYS[new Date().getDay()].toUpperCase()} · {formatDate().split(',')[1]?.trim()}</Text>
+        <View style={styles.heroTopRow}>
+          <View>
+            <Text style={styles.heroOverline}>{DAYS[new Date().getDay()].toUpperCase()} - {formatDate().split(',')[1]?.trim()}</Text>
+            <Text style={styles.locationText}>College Park, MD</Text>
+          </View>
+          <TouchableOpacity style={styles.signOutPill} onPress={handleSignOut} activeOpacity={0.85}>
+            <MaterialIcons name="logout" size={15} color={Colors.primary} />
+            <Text style={styles.signOutText}>Sign Out</Text>
+          </TouchableOpacity>
+        </View>
         <Text style={styles.heroGreeting}>{getGreeting()},</Text>
         <Text style={styles.heroName}>{displayName.split(' ')[0]}!</Text>
       </View>
@@ -193,23 +328,58 @@ export default function DashboardScreen() {
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Dining Halls</Text>
         <View style={styles.bentoGrid}>
-          {mockDiningHalls.map((hall) => (
-            <TouchableOpacity key={hall.id} style={[styles.bentoCell, !hall.isOpen && styles.bentoCellClosed]} activeOpacity={0.85}>
-              <View style={styles.statusRow}>
-                <View style={[styles.statusDot, !hall.isOpen && styles.statusDotClosed]} />
-                <Text style={[styles.statusText, !hall.isOpen && styles.statusTextClosed]}>
-                  {hall.isOpen ? 'OPEN NOW' : 'CLOSED'}
-                </Text>
-              </View>
-              <Text style={styles.bentoName}>{hall.name}</Text>
-              <Text style={styles.bentoLocation}>{hall.location}</Text>
-              <View style={styles.hoursPill}>
-                <Text style={styles.hoursText}>
-                  {hall.isOpen ? `Closes ${hall.closingTime}` : hall.openingTime ?? 'Check schedule'}
-                </Text>
-              </View>
-            </TouchableOpacity>
-          ))}
+          {mockDiningHalls.map((hall) => {
+            const dow = new Date().getDay(); // 0=Sun,1=Mon,..6=Sat
+            const isFriSatSun = dow === 5 || dow === 6 || dow === 0;
+            const opening = isFriSatSun ? (hall.openingTimeWeekend ?? hall.openingTime) : hall.openingTime;
+            const closing = isFriSatSun ? (hall.closingTimeWeekend ?? hall.closingTime) : hall.closingTime;
+            const hallIsOpen = hall.isOpen && isOpenNow(opening, closing);
+            const histogram = trafficByHall[hall.id] ?? BUSY_HISTOGRAMS[hall.id] ?? [20, 40, 55, 45, 30];
+            return (
+              <TouchableOpacity
+                key={hall.id}
+                style={[styles.bentoCell, { width: hallCardWidth }, !hallIsOpen && styles.bentoCellClosed]}
+                activeOpacity={0.85}
+              >
+                <View style={styles.bentoTopRow}>
+                  <View style={styles.bentoInfo}>
+                    <View style={styles.statusRow}>
+                      <View style={[styles.statusDot, !hallIsOpen && styles.statusDotClosed]} />
+                      <Text style={[styles.statusText, !hallIsOpen && styles.statusTextClosed]}>
+                        {hallIsOpen ? 'OPEN NOW' : 'CLOSED NOW'}
+                      </Text>
+                    </View>
+                    <Text style={styles.bentoName}>{hall.name}</Text>
+                    <Text style={styles.bentoLocation}>{hall.location}</Text>
+                  </View>
+                  {isPhoneLayout ? (
+                    <View style={styles.livePill}>
+                      <View style={styles.liveDot} />
+                      <Text style={styles.liveText}>Live</Text>
+                    </View>
+                  ) : (
+                    <View style={styles.busyPanel}>
+                      <View style={styles.livePill}>
+                        <View style={styles.liveDot} />
+                        <Text style={styles.liveText}>Live</Text>
+                      </View>
+                      <BusyHistogram values={histogram} opening={opening} closing={closing} />
+                    </View>
+                  )}
+                </View>
+                {isPhoneLayout && (
+                  <View style={styles.busyPanelPhone}>
+                    <BusyHistogram values={histogram} opening={opening} closing={closing} />
+                  </View>
+                )}
+                <View style={styles.hoursPill}>
+                  <Text style={styles.hoursText}>
+                    {hallIsOpen ? `Closes ${closing}` : `Opens ${opening ?? 'later'}`}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            );
+          })}
         </View>
       </View>
     </ScrollView>
@@ -224,15 +394,40 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.primary,
     paddingHorizontal: Spacing.xl,
     paddingBottom: Spacing.xxl + 8,
-    gap: 2,
+    gap: 6,
     overflow: 'hidden',
+  },
+  heroTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: Spacing.md,
   },
   heroOverline: {
     fontFamily: FONTS.extraBold,
     fontSize: 10,
     letterSpacing: 2,
     color: 'rgba(255,255,255,0.7)',
-    marginBottom: 4,
+  },
+  locationText: {
+    fontFamily: FONTS.bold,
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.82)',
+    marginTop: 4,
+  },
+  signOutPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    backgroundColor: Colors.surfaceContainerLowest,
+    borderRadius: Radii.pill,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  signOutText: {
+    fontFamily: FONTS.extraBold,
+    fontSize: 13,
+    color: Colors.primary,
   },
   heroGreeting: {
     fontFamily: FONTS.extraBold,
@@ -331,12 +526,10 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   bentoCell: {
-    flex: 1,
-    minWidth: '45%',
     backgroundColor: Colors.surfaceContainerLow,
     borderRadius: Radii.chip + 4,
     padding: Spacing.md,
-    gap: 4,
+    gap: 8,
   },
   bentoCellClosed: {
     opacity: 0.6,
@@ -360,6 +553,17 @@ const styles = StyleSheet.create({
   statusTextClosed: {
     color: Colors.onSurfaceVariant,
   },
+  bentoTopRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  bentoInfo: {
+    flex: 0.9,
+    minWidth: 0,
+    gap: 3,
+  },
   bentoName: {
     fontFamily: FONTS.extraBold,
     fontSize: 15,
@@ -368,6 +572,69 @@ const styles = StyleSheet.create({
   bentoLocation: {
     fontFamily: FONTS.medium,
     fontSize: 12,
+    color: Colors.onSurfaceVariant,
+  },
+  busyPanel: {
+    flex: 1.25,
+    minWidth: 140,
+    gap: 3,
+  },
+  busyPanelPhone: {
+    width: '100%',
+    marginTop: 2,
+  },
+  livePill: {
+    alignSelf: 'flex-end',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: Colors.surfaceContainerLowest,
+    borderRadius: Radii.pill,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+  },
+  liveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: Colors.primary,
+  },
+  liveText: {
+    fontFamily: FONTS.extraBold,
+    fontSize: 9,
+    color: Colors.primary,
+  },
+  histogram: {
+    height: 50,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 3,
+  },
+  histogramCompact: {
+    height: 42,
+    gap: 2,
+  },
+  histogramSlot: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+  },
+  histogramBar: {
+    width: 9,
+    borderRadius: Radii.bar,
+    backgroundColor: Colors.secondaryFixedDim,
+  },
+  histogramBarNow: {
+    backgroundColor: Colors.primary,
+  },
+  histogramAxis: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 1,
+  },
+  histogramAxisText: {
+    fontFamily: FONTS.medium,
+    fontSize: 8,
     color: Colors.onSurfaceVariant,
   },
   hoursPill: {

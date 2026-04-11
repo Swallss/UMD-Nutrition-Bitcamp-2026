@@ -3,7 +3,6 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 import requests
 from bs4 import BeautifulSoup
-import pandas as pd
 import time
 import os
 import random
@@ -14,12 +13,18 @@ from dotenv import load_dotenv
 # Firebase setup: load_dotenv() reads in the .env file in this directory, then we can securely use it with os.getenv()
 load_dotenv()
 backend_dir = Path(__file__).resolve().parents[1]
-default_cred_path = backend_dir / "serviceAccountKey.json"
-matching_cred_paths = list(backend_dir.glob("*firebase-adminsdk*.json"))
-cred_path = os.getenv("FIREBASE_KEY_PATH") or str(
-    default_cred_path if default_cred_path.exists() or not matching_cred_paths else matching_cred_paths[0]
-)
-cred = credentials.Certificate(cred_path)
+
+# Prefer an explicit path set via env variable
+env_path = os.getenv("FIREBASE_KEY_PATH")
+if not env_path:
+    raise RuntimeError(
+        "FIREBASE_KEY_PATH is not set. Scraper requires an explicit path to a Firebase service account JSON."
+    )
+cred_path = Path(env_path)
+if not cred_path.exists():
+    raise RuntimeError(f"FIREBASE_KEY_PATH points to '{cred_path}', but the file does not exist.")
+
+cred = credentials.Certificate(str(cred_path))
 
 # Authenticate the program with Firebase using the service account key
 firebase_admin.initialize_app(cred)
