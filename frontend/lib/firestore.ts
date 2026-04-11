@@ -198,6 +198,11 @@ export async function ensureUserProfile(user: User): Promise<{ profile: UserProf
   return { profile, needsOnboarding };
 }
 
+/** Returns a profile populated with defaults, using Firebase Auth user data when available. */
+export function getDefaultProfile(user?: { displayName?: string | null; email?: string | null } | null): UserProfile {
+  return normalizeProfile(undefined, user as any);
+}
+
 export async function fetchUserProfile(uid: string): Promise<UserProfile> {
   const snapshot = await getDoc(doc(db, 'users', uid));
   return normalizeProfile(

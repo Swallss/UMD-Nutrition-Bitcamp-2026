@@ -22,6 +22,7 @@ import { auth } from '@/lib/firebase';
 import {
   fetchUserProfile,
   fetchUserLogs,
+  getDefaultProfile,
   saveUserProfile,
   todayKey,
   weeklyCaloriesFromLogs,
@@ -68,7 +69,9 @@ export default function ProfileScreen() {
     const unsubscribe = auth.onAuthStateChanged((user) => {
       setUid(user?.uid ?? null);
       if (!user) return;
-      fetchUserProfile(user.uid).then(setProfile).catch(() => undefined);
+      fetchUserProfile(user.uid)
+        .then(setProfile)
+        .catch(() => setProfile(getDefaultProfile(user)));
       fetchUserLogs(user.uid).then(setLogs).catch(() => setLogs([]));
     });
     return unsubscribe;
