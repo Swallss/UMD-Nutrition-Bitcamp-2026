@@ -1,6 +1,6 @@
 # 🍽️ UMD Nutrition Tracker
 
-A calorie and macro tracking mobile app built specifically for University of Maryland students. Real dining hall data, scraped fresh, so you actually know what you're eating at South Campus Commons.
+A calorie and macro tracking mobile app built specifically for University of Maryland students. Real dining hall data, scraped fresh, so you actually know what you're eating at dining halls.
 
 ---
 
