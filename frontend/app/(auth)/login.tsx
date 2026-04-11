@@ -27,6 +27,7 @@ let _GoogleSignin: typeof import('@react-native-google-signin/google-signin').Go
 let _statusCodes: typeof import('@react-native-google-signin/google-signin').statusCodes | null = null;
 
 if (Platform.OS !== 'web') {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const gs = require('@react-native-google-signin/google-signin');
   _GoogleSignin = gs.GoogleSignin;
   _statusCodes  = gs.statusCodes;
