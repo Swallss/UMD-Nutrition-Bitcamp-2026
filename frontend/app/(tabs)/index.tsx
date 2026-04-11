@@ -193,23 +193,29 @@ export default function DashboardScreen() {
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Dining Halls</Text>
         <View style={styles.bentoGrid}>
-          {mockDiningHalls.map((hall) => (
-            <TouchableOpacity key={hall.id} style={[styles.bentoCell, !hall.isOpen && styles.bentoCellClosed]} activeOpacity={0.85}>
-              <View style={styles.statusRow}>
-                <View style={[styles.statusDot, !hall.isOpen && styles.statusDotClosed]} />
-                <Text style={[styles.statusText, !hall.isOpen && styles.statusTextClosed]}>
-                  {hall.isOpen ? 'OPEN NOW' : 'CLOSED'}
-                </Text>
-              </View>
-              <Text style={styles.bentoName}>{hall.name}</Text>
-              <Text style={styles.bentoLocation}>{hall.location}</Text>
-              <View style={styles.hoursPill}>
-                <Text style={styles.hoursText}>
-                  {hall.isOpen ? `Closes ${hall.closingTime}` : hall.openingTime ?? 'Check schedule'}
-                </Text>
-              </View>
-            </TouchableOpacity>
-          ))}
+          {mockDiningHalls.map((hall) => {
+            const dow = new Date().getDay(); // 0=Sun,1=Mon,..6=Sat
+            const isFriSatSun = dow === 5 || dow === 6 || dow === 0;
+            const opening = isFriSatSun ? (hall.openingTimeWeekend ?? hall.openingTime) : hall.openingTime;
+            const closing = isFriSatSun ? (hall.closingTimeWeekend ?? hall.closingTime) : hall.closingTime;
+            return (
+              <TouchableOpacity key={hall.id} style={[styles.bentoCell, !hall.isOpen && styles.bentoCellClosed]} activeOpacity={0.85}>
+                <View style={styles.statusRow}>
+                  <View style={[styles.statusDot, !hall.isOpen && styles.statusDotClosed]} />
+                  <Text style={[styles.statusText, !hall.isOpen && styles.statusTextClosed]}>
+                    {hall.isOpen ? 'OPEN NOW' : 'CLOSED'}
+                  </Text>
+                </View>
+                <Text style={styles.bentoName}>{hall.name}</Text>
+                <Text style={styles.bentoLocation}>{hall.location}</Text>
+                <View style={styles.hoursPill}>
+                  <Text style={styles.hoursText}>
+                    {hall.isOpen ? `Closes ${closing}` : opening ?? 'Check schedule'}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            );
+          })}
         </View>
       </View>
     </ScrollView>
