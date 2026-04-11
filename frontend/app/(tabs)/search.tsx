@@ -47,6 +47,7 @@ export default function SearchScreen() {
     }
 
     try {
+      await user.getIdToken(true);
       await addDailyLog(user.uid, item, 1, item.mealTime);
       Alert.alert('Added to log!', formatFoodName(item.name), [{ text: 'OK' }]);
     } catch (error) {

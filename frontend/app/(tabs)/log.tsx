@@ -137,6 +137,7 @@ export default function LogScreen() {
     }
     try {
       setIsSaving(true);
+      await user.getIdToken(true);
       const mealTime: MealTime = getCurrentMealTime();
       await Promise.all(
         pendingEntries.map((e) => addDailyLog(user.uid, e.item, e.quantity, mealTime)),

@@ -1,6 +1,5 @@
 import {
   Timestamp,
-  addDoc,
   collection,
   deleteDoc,
   doc,
@@ -337,7 +336,8 @@ export async function addDailyLog(
   quantity: number,
   mealTime: MealTime,
 ): Promise<void> {
-  await addDoc(collection(db, 'users', userId, 'dailyLogs'), {
+  const logRef = doc(collection(db, 'users', userId, 'dailyLogs'));
+  const logData = {
     userId,
     foodItemId:     item.id,
     foodName:       formatFoodName(item.name),
@@ -353,7 +353,18 @@ export async function addDailyLog(
     loggedAt:       new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
     loggedAtTimestamp: serverTimestamp(),
     rating:         0,
-  });
+  };
+
+  try {
+    await setDoc(logRef, logData);
+  } catch (error) {
+    const code =
+      typeof error === 'object' && error !== null && 'code' in error
+        ? String((error as { code?: unknown }).code)
+        : 'unknown';
+    const message = error instanceof Error ? error.message : 'Unknown Firestore error';
+    throw new Error(`Firestore write failed at ${logRef.path} (${code}): ${message}`);
+  }
 }
 
 export async function updateLogRating(userId: string, logId: string, rating: number): Promise<void> {
