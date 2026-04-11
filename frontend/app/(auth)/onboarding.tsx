@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
+  Platform,
   ScrollView,
   View,
   Text,
@@ -97,24 +98,28 @@ export default function OnboardingScreen() {
       <View style={styles.card}>
         <NumberField
           label="Height"
+          placeholder="e.g. 73"
           suffix="in"
           value={profile.metrics.height_in}
           onChange={(value) => updateMetric('height_in', value)}
         />
         <NumberField
           label="Current weight"
+          placeholder="e.g. 210"
           suffix="lbs"
           value={profile.metrics.current_weight_lbs}
           onChange={(value) => updateMetric('current_weight_lbs', value)}
         />
         <NumberField
           label="Target weight"
+          placeholder="e.g. 180"
           suffix="lbs"
           value={profile.metrics.target_weight_lbs}
           onChange={(value) => updateMetric('target_weight_lbs', value)}
         />
         <NumberField
           label="Age"
+          placeholder="e.g. 20"
           suffix="yrs"
           value={profile.metrics.age}
           onChange={(value) => updateMetric('age', value)}
@@ -134,11 +139,13 @@ export default function OnboardingScreen() {
 
 function NumberField({
   label,
+  placeholder,
   suffix,
   value,
   onChange,
 }: {
   label: string;
+  placeholder: string;
   suffix: string;
   value: number;
   onChange: (value: number) => void;
@@ -161,8 +168,14 @@ function NumberField({
       <Text style={styles.fieldLabel}>{label}</Text>
       <View style={styles.inputRow}>
         <TextInput
-          style={styles.input}
+          style={[
+            styles.input,
+            Platform.OS === 'web' && ({ outlineStyle: 'none' } as never),
+          ]}
           keyboardType="numeric"
+          placeholder={placeholder}
+          placeholderTextColor={`${Colors.onSurfaceVariant}88`}
+          selectionColor={Colors.primary}
           value={text}
           onChangeText={(t) => {
             setText(t);
@@ -235,16 +248,18 @@ const styles = StyleSheet.create({
   inputRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.surfaceContainerHighest,
-    borderRadius: Radii.input,
-    paddingHorizontal: 18,
+    backgroundColor: Colors.surfaceContainerLowest,
+    borderColor: Colors.primary,
+    borderRadius: Radii.innerCard,
+    borderWidth: 1.5,
+    paddingHorizontal: 14,
   },
   input: {
     flex: 1,
     fontFamily: FONTS.extraBold,
     fontSize: 16,
     color: Colors.onSurface,
-    paddingVertical: 12,
+    paddingVertical: 10,
   },
   suffix: {
     fontFamily: FONTS.bold,

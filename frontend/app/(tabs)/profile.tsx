@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   Alert,
+  Platform,
   ScrollView,
   View,
   Text,
@@ -218,7 +219,7 @@ export default function ProfileScreen() {
             value={formatHeight(profile.metrics.height_in)}
             editing={isEditing}
             rawValue={draftValues.height_in ?? String(profile.metrics.height_in)}
-            hint="inches (e.g. 70)"
+            hint="e.g. 73"
             onChangeText={(v) => setDraftValues((d) => ({ ...d, height_in: v }))}
           />
           <StatTile
@@ -226,7 +227,7 @@ export default function ProfileScreen() {
             value={`${profile.metrics.current_weight_lbs} lbs`}
             editing={isEditing}
             rawValue={draftValues.current_weight_lbs ?? String(profile.metrics.current_weight_lbs)}
-            hint="lbs (e.g. 150)"
+            hint="e.g. 210"
             onChangeText={(v) => setDraftValues((d) => ({ ...d, current_weight_lbs: v }))}
           />
           <StatTile
@@ -234,7 +235,7 @@ export default function ProfileScreen() {
             value={`${profile.metrics.age} yrs`}
             editing={isEditing}
             rawValue={draftValues.age ?? String(profile.metrics.age)}
-            hint="age (e.g. 21)"
+            hint="e.g. 20"
             onChangeText={(v) => setDraftValues((d) => ({ ...d, age: v }))}
           />
           <StatTile
@@ -242,7 +243,7 @@ export default function ProfileScreen() {
             value={`${profile.metrics.target_weight_lbs} lbs`}
             editing={isEditing}
             rawValue={draftValues.target_weight_lbs ?? String(profile.metrics.target_weight_lbs)}
-            hint="lbs (e.g. 140)"
+            hint="e.g. 180"
             onChangeText={(v) => setDraftValues((d) => ({ ...d, target_weight_lbs: v }))}
           />
         </View>
@@ -338,16 +339,20 @@ function StatTile({
   onChangeText?: (v: string) => void; rawValue?: string; hint?: string;
 }) {
   return (
-    <View style={tileStyles.tile}>
+    <View style={[tileStyles.tile, editing && tileStyles.tileEditing]}>
       <Text style={tileStyles.label}>{label}</Text>
       {editing && onChangeText ? (
         <TextInput
-          style={tileStyles.input}
+          style={[
+            tileStyles.input,
+            Platform.OS === 'web' && ({ outlineStyle: 'none' } as never),
+          ]}
           value={rawValue}
           onChangeText={onChangeText}
           keyboardType="numeric"
           placeholder={hint}
-          placeholderTextColor={Colors.onSurfaceVariant}
+          placeholderTextColor={`${Colors.onSurfaceVariant}88`}
+          selectionColor={Colors.primary}
         />
       ) : (
         <Text style={tileStyles.value}>{value}</Text>
@@ -365,6 +370,9 @@ const tileStyles = StyleSheet.create({
     padding: Spacing.md,
     gap: 4,
   },
+  tileEditing: {
+    padding: 8,
+  },
   label: {
     fontFamily: FONTS.medium,
     fontSize: 11,
@@ -381,9 +389,12 @@ const tileStyles = StyleSheet.create({
     fontFamily: FONTS.extraBold,
     fontSize: 16,
     color: Colors.onSurface,
-    borderBottomWidth: 1.5,
-    borderBottomColor: Colors.primary,
-    paddingVertical: 2,
+    backgroundColor: Colors.surfaceContainerLowest,
+    borderColor: Colors.primary,
+    borderRadius: Radii.innerCard,
+    borderWidth: 1.5,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
   },
 });
 
