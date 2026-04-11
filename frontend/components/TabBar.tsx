@@ -1,7 +1,6 @@
 // Custom bottom tab bar — matches stitch nav design.
 // Active: Maryland Red pill (borderRadius 16) with white icon + label.
 // Inactive: onSurfaceVariant grey icon + label.
-// Container: near-white translucent bg, rounded top corners, ambient shadow.
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -18,18 +17,23 @@ type TabConfig = {
 const TAB_CONFIG: TabConfig[] = [
   { routeName: 'index', label: 'HOME', icon: 'home' },
   { routeName: 'log', label: 'LOG', icon: 'add-circle' },
-  { routeName: 'search', label: 'SEARCH', icon: 'search' },
   { routeName: 'profile', label: 'PROFILE', icon: 'person' },
 ];
 
 export function TabBar({ state, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
 
+  // Only render tabs that have a TAB_CONFIG entry (excludes hidden search tab)
+  const visibleRoutes = state.routes.filter((route) =>
+    TAB_CONFIG.some((c) => c.routeName === route.name),
+  );
+
   return (
     <View style={[styles.container, { paddingBottom: Math.max(insets.bottom, 8) + 6 }]}>
-      {state.routes.map((route, index) => {
-        const config = TAB_CONFIG[index];
-        const isActive = state.index === index;
+      {visibleRoutes.map((route) => {
+        const config = TAB_CONFIG.find((c) => c.routeName === route.name)!;
+        const routeIndex = state.routes.findIndex((r) => r.key === route.key);
+        const isActive = state.index === routeIndex;
 
         const onPress = () => {
           if (!isActive) {
@@ -72,7 +76,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     justifyContent: 'space-around',
     alignItems: 'center',
-    // Ambient shadow — no hard drop shadow per design rules
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.05,
@@ -94,7 +97,6 @@ const styles = StyleSheet.create({
   tabInnerActive: {
     backgroundColor: Colors.primary,
     paddingHorizontal: 18,
-    // Subtle red ambient glow on active pill
     shadowColor: Colors.primary,
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.35,

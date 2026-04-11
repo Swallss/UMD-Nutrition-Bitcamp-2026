@@ -45,6 +45,7 @@ export interface DailyLogEntry extends LogEntry {
   servingSize?: string;
   date: string;
   loggedAtTimestamp?: Timestamp;
+  rating?: number; // 1–5 star user score
 }
 
 const DEFAULT_PROFILE: UserProfile = {
@@ -62,10 +63,13 @@ const DEFAULT_PROFILE: UserProfile = {
   onboarding_complete: false,
 };
 
+// Maps scraper location codes → app dining hall IDs
 const LOCATION_TO_HALL: Record<string, string> = {
   Y: 'yahentamitsi',
   SOUTH: 'south-campus',
   '251': '251-north',
+  '251N': '251-north',
+  NORTH: '251-north',
 };
 
 const HALL_NAMES: Record<string, string> = {
@@ -80,6 +84,7 @@ export function todayKey(date = new Date()) {
 
 function firstLocation(locations: unknown): string {
   if (Array.isArray(locations) && typeof locations[0] === 'string') return locations[0];
+  if (typeof locations === 'string') return locations;
   return 'Y';
 }
 
@@ -113,24 +118,28 @@ function normalizeProfile(data: Partial<UserProfile> | undefined, user?: User): 
 
 export function mapItemDoc(id: string, data: Record<string, any>): FoodItem {
   const location = firstLocation(data.locations);
-  const diningHallId = LOCATION_TO_HALL[location] ?? location.toLowerCase();
+  // Try exact match first, then uppercase, then lowercase prefix
+  const diningHallId =
+    LOCATION_TO_HALL[location] ??
+    LOCATION_TO_HALL[location.toUpperCase()] ??
+    location.toLowerCase();
   return {
     id,
     name: data.name ?? 'Unknown item',
     calories: Math.round(Number(data.calories ?? 0)),
-    protein: Number(data.protein_g ?? 0),
-    carbs: Number(data.total_carbs_g ?? 0),
-    fat: Number(data.total_fat_g ?? 0),
+    protein: Number(data.protein_g ?? data.protein ?? 0),
+    carbs: Number(data.total_carbs_g ?? data.carbs ?? 0),
+    fat: Number(data.total_fat_g ?? data.fat ?? 0),
     diningHallId,
     mealTime: currentMealTime(),
-    dietaryTag: null,
+    dietaryTag: null, // dietary tags not available from scraper
     station: data.serving_size ?? '',
     servingSize: data.serving_size,
   };
 }
 
 export async function fetchFoodItems() {
-  const snapshot = await getDocs(query(collection(db, 'items'), orderBy('name'), limit(200)));
+  const snapshot = await getDocs(query(collection(db, 'items'), orderBy('name'), limit(500)));
   const items = snapshot.docs.map((itemDoc) => mapItemDoc(itemDoc.id, itemDoc.data()));
   return items.length > 0 ? items : mockFoodItems;
 }
@@ -138,13 +147,14 @@ export async function fetchFoodItems() {
 export async function ensureUserProfile(user: User) {
   const userRef = doc(db, 'users', user.uid);
   const snapshot = await getDoc(userRef);
-  const profile = normalizeProfile(snapshot.exists() ? (snapshot.data() as UserProfile) : undefined, user);
+  const existingData = snapshot.exists() ? (snapshot.data() as Partial<UserProfile>) : undefined;
+  const profile = normalizeProfile(existingData, user);
 
   await setDoc(
     userRef,
     {
       ...profile,
-      createdAt: profile.createdAt ?? serverTimestamp(),
+      createdAt: existingData?.createdAt ?? serverTimestamp(),
       updatedAt: serverTimestamp(),
     },
     { merge: true },
@@ -155,7 +165,7 @@ export async function ensureUserProfile(user: User) {
 
 export async function fetchUserProfile(uid: string) {
   const snapshot = await getDoc(doc(db, 'users', uid));
-  return normalizeProfile(snapshot.exists() ? (snapshot.data() as UserProfile) : undefined);
+  return normalizeProfile(snapshot.exists() ? (snapshot.data() as Partial<UserProfile>) : undefined);
 }
 
 export async function saveUserProfile(uid: string, profile: UserProfile) {
@@ -182,43 +192,47 @@ export async function fetchDailyLogs(userId: string, date = todayKey()) {
     return {
       id: logDoc.id,
       userId,
-      foodItemId: data.foodItemId,
-      foodName: data.foodName,
+      foodItemId: data.foodItemId ?? logDoc.id,
+      foodName: data.foodName ?? 'Unknown',
       calories: Number(data.calories ?? 0),
       protein: Number(data.protein ?? 0),
       carbs: Number(data.carbs ?? 0),
       fat: Number(data.fat ?? 0),
-      mealTime: data.mealTime,
-      diningHallName: data.diningHallName,
-      loggedAt: data.loggedAt,
+      mealTime: data.mealTime ?? 'Dinner',
+      diningHallName: data.diningHallName ?? '',
+      loggedAt: data.loggedAt ?? '',
       quantity: Number(data.quantity ?? 1),
       servingSize: data.servingSize,
       date,
       loggedAtTimestamp: data.loggedAtTimestamp,
+      rating: data.rating ?? 0,
     } satisfies DailyLogEntry;
   });
 }
 
 export async function fetchUserLogs(userId: string) {
-  const snapshot = await getDocs(query(collection(db, 'dailyLogs'), where('userId', '==', userId), limit(500)));
+  const snapshot = await getDocs(
+    query(collection(db, 'dailyLogs'), where('userId', '==', userId), limit(500)),
+  );
   return snapshot.docs.map((logDoc) => {
     const data = logDoc.data();
     return {
       id: logDoc.id,
       userId,
-      foodItemId: data.foodItemId,
-      foodName: data.foodName,
+      foodItemId: data.foodItemId ?? logDoc.id,
+      foodName: data.foodName ?? 'Unknown',
       calories: Number(data.calories ?? 0),
       protein: Number(data.protein ?? 0),
       carbs: Number(data.carbs ?? 0),
       fat: Number(data.fat ?? 0),
-      mealTime: data.mealTime,
-      diningHallName: data.diningHallName,
-      loggedAt: data.loggedAt,
+      mealTime: data.mealTime ?? 'Dinner',
+      diningHallName: data.diningHallName ?? '',
+      loggedAt: data.loggedAt ?? '',
       quantity: Number(data.quantity ?? 1),
       servingSize: data.servingSize,
-      date: data.date,
+      date: data.date ?? todayKey(),
       loggedAtTimestamp: data.loggedAtTimestamp,
+      rating: data.rating ?? 0,
     } satisfies DailyLogEntry;
   });
 }
@@ -230,7 +244,6 @@ export function weeklyCaloriesFromLogs(logs: DailyLogEntry[], today = new Date()
     day.setDate(today.getDate() - i);
     days.push(todayKey(day));
   }
-
   return days.map((date) =>
     logs
       .filter((entry) => entry.date === date)
@@ -254,6 +267,7 @@ export async function addDailyLog(userId: string, item: FoodItem, quantity: numb
     date: todayKey(),
     loggedAt: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
     loggedAtTimestamp: serverTimestamp(),
+    rating: 0,
   });
 }
 
@@ -266,6 +280,10 @@ export async function updateDailyLogQuantity(logId: string, item: FoodItem, quan
     fat: Number((item.fat * quantity).toFixed(1)),
     updatedAt: serverTimestamp(),
   });
+}
+
+export async function updateLogRating(logId: string, rating: number) {
+  await updateDoc(doc(db, 'dailyLogs', logId), { rating });
 }
 
 export async function removeDailyLog(logId: string) {

@@ -16,7 +16,6 @@ export function MacroRing({ consumed, goal, size = 160, strokeWidth = 14 }: Prop
   const dashOffset = circumference * (1 - progress);
   const cx = size / 2;
   const cy = size / 2;
-  const labelX = cx - 2;
   const pct = Math.round(progress * 100);
 
   return (
@@ -47,10 +46,10 @@ export function MacroRing({ consumed, goal, size = 160, strokeWidth = 14 }: Prop
           rotation="-90"
           origin={`${cx}, ${cy}`}
         />
-        {/* Centre % */}
+        {/* Centre % — perfectly centered */}
         <SvgText
-          x={labelX}
-          y={cy - 6}
+          x={cx}
+          y={cy - 7}
           textAnchor="middle"
           alignmentBaseline="middle"
           fontSize={28}
@@ -61,7 +60,7 @@ export function MacroRing({ consumed, goal, size = 160, strokeWidth = 14 }: Prop
         </SvgText>
         {/* Centre sub-label */}
         <SvgText
-          x={labelX}
+          x={cx}
           y={cy + 16}
           textAnchor="middle"
           alignmentBaseline="middle"
@@ -84,7 +83,6 @@ export function MacroRingHero({ consumed, goal, size = 100, strokeWidth = 10 }: 
   const dashOffset = circumference * (1 - progress);
   const cx = size / 2;
   const cy = size / 2;
-  const labelX = cx - 1;
   const pct = Math.round(progress * 100);
 
   return (
@@ -107,10 +105,10 @@ export function MacroRingHero({ consumed, goal, size = 100, strokeWidth = 10 }: 
           strokeLinecap="round"
           rotation="-90" origin={`${cx}, ${cy}`}
         />
-        <SvgText x={labelX} y={cy - 4} textAnchor="middle" alignmentBaseline="middle" fontSize={20} fontFamily={FONTS.extraBold} fill="#fff">
+        <SvgText x={cx} y={cy - 5} textAnchor="middle" alignmentBaseline="middle" fontSize={20} fontFamily={FONTS.extraBold} fill="#fff">
           {pct}%
         </SvgText>
-        <SvgText x={labelX} y={cy + 13} textAnchor="middle" alignmentBaseline="middle" fontSize={10} fontFamily={FONTS.medium} fill="rgba(255,255,255,0.7)">
+        <SvgText x={cx} y={cy + 13} textAnchor="middle" alignmentBaseline="middle" fontSize={10} fontFamily={FONTS.medium} fill="rgba(255,255,255,0.7)">
           {consumed} cal
         </SvgText>
       </Svg>

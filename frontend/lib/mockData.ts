@@ -100,21 +100,24 @@ export const mockDiningHalls: DiningHall[] = [
     name: 'Yahentamitsi',
     location: 'Heritage Community',
     isOpen: true,
+    openingTime: '7:00 AM',
     closingTime: '9:00 PM',
   },
   {
     id: 'south-campus',
-    name: 'South Campus Dining Hall',
+    name: 'South Campus',
     location: 'South Campus',
     isOpen: true,
+    openingTime: '7:00 AM',
     closingTime: '8:30 PM',
   },
   {
     id: '251-north',
-    name: '251 North Dining Hall',
+    name: '251 North',
     location: 'North Campus',
-    isOpen: false,
-    openingTime: 'Tomorrow 7:00 AM',
+    isOpen: true,
+    openingTime: '7:30 AM',
+    closingTime: '8:00 PM',
   },
 ];
 

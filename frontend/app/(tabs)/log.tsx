@@ -1,4 +1,5 @@
-// Log Food — search + filter UMD dining items, add to today's log.
+// Log Food — search UMD dining items by name/hall, add to today's log.
+// Meal-time filter removed (scraped data has no meal info).
 import { useEffect, useState, useCallback } from 'react';
 import {
   Alert,
@@ -7,7 +8,6 @@ import {
   TextInput,
   TouchableOpacity,
   FlatList,
-  ScrollView,
   StyleSheet,
   Platform,
 } from 'react-native';
@@ -28,43 +28,40 @@ import {
 import { auth } from '@/lib/firebase';
 import { addDailyLog, fetchDailyLogs, fetchFoodItems } from '@/lib/firestore';
 
-const MEAL_TIMES: MealTime[] = ['Breakfast', 'Lunch', 'Dinner', 'Snack'];
-
 export default function LogScreen() {
   const insets = useSafeAreaInsets();
   const [query, setQuery] = useState('');
-  const [selectedMeal, setSelectedMeal] = useState<MealTime>(getCurrentMealTime());
   const [selectedHall, setSelectedHall] = useState<string | null>(null);
-  const [foodItems, setFoodItems] = useState<FoodItem[]>(mockFoodItems);
+  const [foodItems, setFoodItems] = useState<FoodItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [todayLogs, setTodayLogs] = useState<LogEntry[]>([]);
   const [pendingItems, setPendingItems] = useState<Record<string, { item: FoodItem; quantity: number }>>({});
   const [isSaving, setIsSaving] = useState(false);
 
   const baseTotals = getTodayTotals(todayLogs);
   const pendingEntries = Object.values(pendingItems);
-  const sessionCalories = pendingEntries.reduce((s, entry) => s + entry.item.calories * entry.quantity, 0);
+  const sessionCalories = pendingEntries.reduce((s, e) => s + e.item.calories * e.quantity, 0);
   const runningCalories = baseTotals.calories + sessionCalories;
 
   useEffect(() => {
+    setIsLoading(true);
     fetchFoodItems()
       .then(setFoodItems)
-      .catch(() => setFoodItems(mockFoodItems));
+      .catch(() => setFoodItems(mockFoodItems))
+      .finally(() => setIsLoading(false));
 
     const unsubscribe = auth.onAuthStateChanged((user) => {
-      if (!user) {
-        setTodayLogs([]);
-        return;
-      }
+      if (!user) { setTodayLogs([]); return; }
       fetchDailyLogs(user.uid).then(setTodayLogs).catch(() => setTodayLogs([]));
     });
     return unsubscribe;
   }, []);
 
   const filtered = foodItems.filter((item) => {
-    const matchQuery = item.name.toLowerCase().includes(query.toLowerCase());
-    const matchMeal = item.mealTime === selectedMeal;
+    const matchQuery =
+      query.length === 0 || item.name.toLowerCase().includes(query.toLowerCase());
     const matchHall = selectedHall === null || item.diningHallId === selectedHall;
-    return matchQuery && matchMeal && matchHall;
+    return matchQuery && matchHall;
   });
 
   const handleAdd = useCallback((item: FoodItem) => {
@@ -78,27 +75,27 @@ export default function LogScreen() {
     setPendingItems((prev) => {
       const entry = prev[itemId];
       if (!entry) return prev;
-      const nextQuantity = entry.quantity + delta;
-      if (nextQuantity <= 0) {
+      const nextQty = entry.quantity + delta;
+      if (nextQty <= 0) {
         const { [itemId]: _removed, ...rest } = prev;
         return rest;
       }
-      return { ...prev, [itemId]: { ...entry, quantity: nextQuantity } };
+      return { ...prev, [itemId]: { ...entry, quantity: nextQty } };
     });
   };
 
   const handleConfirm = async () => {
     const user = auth.currentUser;
     if (!user) {
-      Alert.alert('Sign in required', 'Please sign in with Google before saving food logs.');
+      Alert.alert('Sign in required', 'Please sign in before saving food logs.');
       router.replace('/(auth)/login' as any);
       return;
     }
-
     try {
       setIsSaving(true);
+      const mealTime: MealTime = getCurrentMealTime();
       await Promise.all(
-        pendingEntries.map((entry) => addDailyLog(user.uid, entry.item, entry.quantity, selectedMeal)),
+        pendingEntries.map((e) => addDailyLog(user.uid, e.item, e.quantity, mealTime)),
       );
       setPendingItems({});
       router.replace('/(tabs)');
@@ -123,6 +120,7 @@ export default function LogScreen() {
           value={query}
           onChangeText={setQuery}
           returnKeyType="search"
+          autoCorrect={false}
         />
         {query.length > 0 && (
           <TouchableOpacity onPress={() => setQuery('')} style={{ paddingHorizontal: 10 }}>
@@ -131,28 +129,10 @@ export default function LogScreen() {
         )}
       </View>
 
-      {/* Meal-time chips */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
-        {MEAL_TIMES.map((meal) => {
-          const isActive = selectedMeal === meal;
-          return (
-            <TouchableOpacity
-              key={meal}
-              onPress={() => setSelectedMeal(meal)}
-              style={[styles.chip, isActive && styles.chipActive]}
-              activeOpacity={0.75}
-            >
-              <Text style={[styles.chipLabel, isActive && styles.chipLabelActive]}>
-                {meal.toUpperCase()}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
-
       {/* Hall picker */}
       <DiningHallPicker selected={selectedHall} onSelect={setSelectedHall} />
 
+      {/* Pending items */}
       {pendingEntries.length > 0 && (
         <View style={styles.pendingBox}>
           <Text style={styles.pendingTitle}>Ready to log</Text>
@@ -179,16 +159,17 @@ export default function LogScreen() {
       )}
 
       {/* Count */}
-      <Text style={styles.countLabel}>
-        {filtered.length} {filtered.length === 1 ? 'item' : 'items'}
-        {selectedHall ? '' : ' across all halls'}
-      </Text>
+      {!isLoading && (
+        <Text style={styles.countLabel}>
+          {filtered.length} {filtered.length === 1 ? 'item' : 'items'}
+          {selectedHall ? '' : ' across all halls'}
+        </Text>
+      )}
     </View>
   );
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
-      {/* Sticky header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Log Food</Text>
         {runningCalories > 0 && (
@@ -198,7 +179,6 @@ export default function LogScreen() {
         )}
       </View>
 
-      {/* Food list */}
       <FlatList
         data={filtered}
         keyExtractor={(item) => item.id}
@@ -213,18 +193,26 @@ export default function LogScreen() {
         ListHeaderComponent={ListHeader}
         ListEmptyComponent={
           <View style={styles.empty}>
-            <MaterialIcons name="search-off" size={56} color={Colors.surfaceContainerHigh} />
-            <Text style={styles.emptyText}>No items found</Text>
-            <Text style={styles.emptyHint}>Try a different search or filter</Text>
+            <MaterialIcons
+              name={isLoading ? 'hourglass-empty' : 'search-off'}
+              size={56}
+              color={Colors.surfaceContainerHigh}
+            />
+            <Text style={styles.emptyText}>
+              {isLoading ? 'Loading menu...' : 'No items found'}
+            </Text>
+            {!isLoading && (
+              <Text style={styles.emptyHint}>Try a different search or dining hall</Text>
+            )}
           </View>
         }
         contentContainerStyle={styles.listContent}
         ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
       />
 
-      {/* Confirm FAB */}
       {pendingEntries.length > 0 && (
         <TouchableOpacity
           style={[styles.fab, { bottom: insets.bottom + 90 }]}
@@ -271,10 +259,8 @@ const styles = StyleSheet.create({
   },
 
   listContent: { paddingHorizontal: Spacing.md, paddingBottom: 160 },
-
   listHeader: { gap: 12, marginBottom: 12 },
 
-  // Search
   searchBox: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -304,18 +290,6 @@ const styles = StyleSheet.create({
     color: Colors.onSurface,
     paddingVertical: Platform.OS === 'ios' ? 12 : 8,
   },
-
-  // Chips
-  chipRow: { flexDirection: 'row', gap: 8 },
-  chip: {
-    backgroundColor: Colors.surfaceContainerHigh,
-    borderRadius: Radii.chip,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
-  chipActive: { backgroundColor: Colors.secondaryFixed },
-  chipLabel: { fontFamily: FONTS.bold, fontSize: 12, color: Colors.onSurfaceVariant },
-  chipLabelActive: { color: Colors.onSecondaryFixed },
 
   countLabel: {
     fontFamily: FONTS.semiBold,
@@ -371,12 +345,10 @@ const styles = StyleSheet.create({
     color: Colors.onSurface,
   },
 
-  // Empty state
   empty: { alignItems: 'center', paddingVertical: 48, gap: 8 },
   emptyText: { fontFamily: FONTS.bold, fontSize: 16, color: Colors.onSurfaceVariant },
   emptyHint: { fontFamily: FONTS.medium, fontSize: 13, color: Colors.onSurfaceVariant },
 
-  // FAB
   fab: {
     position: 'absolute',
     alignSelf: 'center',

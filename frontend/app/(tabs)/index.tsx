@@ -1,5 +1,5 @@
-// Dashboard — daily calorie ring, macro bars, today's log, open dining halls.
-import { useEffect, useState } from 'react';
+// Dashboard — daily calorie ring, macro bars, today's log, dining halls.
+import { useEffect, useState, useCallback } from 'react';
 import { Alert, ScrollView, View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, FONTS, Radii, Spacing } from '@/constants/Colors';
@@ -7,12 +7,20 @@ import { MacroRing } from '@/components/MacroRing';
 import { MacroBar } from '@/components/MacroBar';
 import { FoodCard } from '@/components/FoodCard';
 import { HeroPattern } from '@/components/HeroPattern';
-import { mockUser, mockTodayLog, mockDiningHalls, getTodayTotals, type LogEntry } from '@/lib/mockData';
+import { mockDiningHalls, getTodayTotals, type LogEntry } from '@/lib/mockData';
 import { auth } from '@/lib/firebase';
 import { calculateNutritionGoals } from '@/lib/nutritionGoals';
-import { fetchDailyLogs, fetchUserProfile, removeDailyLog, type DailyLogEntry, type UserProfile } from '@/lib/firestore';
+import {
+  fetchDailyLogs,
+  fetchUserProfile,
+  removeDailyLog,
+  updateLogRating,
+  type DailyLogEntry,
+  type UserProfile,
+} from '@/lib/firestore';
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const LOG_PREVIEW_COUNT = 3;
 
 function getGreeting() {
   const h = new Date().getHours();
@@ -32,39 +40,47 @@ function formatDate() {
 export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [todayLog, setTodayLog] = useState<(LogEntry | DailyLogEntry)[]>(mockTodayLog);
+  const [todayLog, setTodayLog] = useState<(LogEntry | DailyLogEntry)[]>([]);
+  const [showAllLog, setShowAllLog] = useState(false);
+
   const totals = getTodayTotals(todayLog);
   const goals = profile
     ? calculateNutritionGoals(profile)
-    : {
-        calorieGoal: mockUser.calorieGoal,
-        proteinGoal: mockUser.proteinGoal,
-        carbGoal: mockUser.carbGoal,
-        fatGoal: mockUser.fatGoal,
-      };
-  const openHalls = mockDiningHalls.filter((h) => h.isOpen);
-  const displayName = profile?.displayName ?? mockUser.name;
+    : { calorieGoal: 2000, proteinGoal: 150, carbGoal: 250, fatGoal: 65 };
+
+  const displayName = profile?.displayName ?? 'Terp';
+  const visibleLog = showAllLog ? todayLog : todayLog.slice(0, LOG_PREVIEW_COUNT);
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged((user) => {
       if (!user) return;
       fetchUserProfile(user.uid).then(setProfile).catch(() => undefined);
-      fetchDailyLogs(user.uid).then(setTodayLog).catch(() => setTodayLog(mockTodayLog));
+      fetchDailyLogs(user.uid).then(setTodayLog).catch(() => setTodayLog([]));
     });
     return unsubscribe;
   }, []);
 
-  const handleRemoveLog = async (item: LogEntry) => {
+  const handleRemoveLog = useCallback(async (entry: LogEntry | DailyLogEntry) => {
     const user = auth.currentUser;
     if (!user) return;
-
     try {
-      await removeDailyLog(item.id);
-      setTodayLog((prev) => prev.filter((entry) => entry.id !== item.id));
+      await removeDailyLog(entry.id);
+      setTodayLog((prev) => prev.filter((e) => e.id !== entry.id));
     } catch (error) {
       Alert.alert('Could not remove item', error instanceof Error ? error.message : 'Please try again.');
     }
-  };
+  }, []);
+
+  const handleRate = useCallback(async (entry: LogEntry | DailyLogEntry, rating: number) => {
+    try {
+      await updateLogRating(entry.id, rating);
+      setTodayLog((prev) =>
+        prev.map((e) => (e.id === entry.id ? { ...e, rating } : e)),
+      );
+    } catch {
+      // Silently fail for ratings
+    }
+  }, []);
 
   return (
     <ScrollView
@@ -84,33 +100,14 @@ export default function DashboardScreen() {
       <View style={styles.macroCard}>
         <Text style={styles.cardTitle}>{`Today's Progress`}</Text>
         <View style={styles.macroRow}>
-          {/* Ring */}
           <MacroRing consumed={totals.calories} goal={goals.calorieGoal} size={140} strokeWidth={13} />
-
-          {/* Bars */}
           <View style={styles.barsCol}>
-            <MacroBar
-              label="Protein"
-              consumed={totals.protein}
-              goal={goals.proteinGoal}
-              color={Colors.primary}
-            />
-            <MacroBar
-              label="Carbs"
-              consumed={totals.carbs}
-              goal={goals.carbGoal}
-              color={Colors.secondaryFixedDim}
-            />
-            <MacroBar
-              label="Fat"
-              consumed={totals.fat}
-              goal={goals.fatGoal}
-              color={Colors.tertiary}
-            />
+            <MacroBar label="Protein" consumed={totals.protein} goal={goals.proteinGoal} color={Colors.primary} />
+            <MacroBar label="Carbs" consumed={totals.carbs} goal={goals.carbGoal} color={Colors.secondaryFixedDim} />
+            <MacroBar label="Fat" consumed={totals.fat} goal={goals.fatGoal} color={Colors.tertiary} />
           </View>
         </View>
 
-        {/* Calorie summary pills */}
         <View style={styles.summaryRow}>
           <View style={styles.summaryPill}>
             <Text style={styles.summaryValue}>{totals.calories}</Text>
@@ -118,7 +115,7 @@ export default function DashboardScreen() {
           </View>
           <View style={[styles.summaryPill, styles.summaryPillGoal]}>
             <Text style={[styles.summaryValue, { color: Colors.onSecondaryFixed }]}>
-              {goals.calorieGoal - totals.calories}
+              {Math.max(0, goals.calorieGoal - totals.calories)}
             </Text>
             <Text style={[styles.summaryLabel, { color: Colors.onSecondaryFixedVariant }]}>Remaining</Text>
           </View>
@@ -133,43 +130,66 @@ export default function DashboardScreen() {
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>{`Today's Log`}</Text>
-          <TouchableOpacity>
-            <Text style={styles.seeAll}>See all</Text>
-          </TouchableOpacity>
+          {todayLog.length > LOG_PREVIEW_COUNT && (
+            <TouchableOpacity onPress={() => setShowAllLog((v) => !v)}>
+              <Text style={styles.seeAll}>
+                {showAllLog ? 'Show less' : `See all (${todayLog.length})`}
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
-        <View style={styles.logList}>
-          {todayLog.map((entry) => {
-            const item = {
-              id: entry.foodItemId,
-              name: entry.foodName,
-              calories: entry.calories,
-              protein: entry.protein,
-              carbs: entry.carbs,
-              fat: entry.fat,
-              diningHallId: '',
-              mealTime: entry.mealTime,
-              dietaryTag: null,
-              station: '',
-            } as const;
-            return <FoodCard key={entry.id} item={item} mode="compact" onRemove={() => handleRemoveLog(entry)} />;
-          })}
-        </View>
+
+        {todayLog.length === 0 ? (
+          <Text style={styles.emptyLog}>No items logged today. Tap Log to add food!</Text>
+        ) : (
+          <View style={styles.logList}>
+            {visibleLog.map((entry) => {
+              const item = {
+                id: entry.foodItemId,
+                name: entry.foodName,
+                calories: entry.calories,
+                protein: entry.protein,
+                carbs: entry.carbs,
+                fat: entry.fat,
+                diningHallId: '',
+                mealTime: entry.mealTime,
+                dietaryTag: null,
+                station: '',
+              } as const;
+              const logRating = (entry as DailyLogEntry).rating ?? 0;
+              return (
+                <FoodCard
+                  key={entry.id}
+                  item={item}
+                  mode="compact"
+                  rating={logRating}
+                  onRate={(r) => handleRate(entry, r)}
+                  onRemove={() => handleRemoveLog(entry)}
+                />
+              );
+            })}
+          </View>
+        )}
       </View>
 
-      {/* ── Open Dining Halls bento grid ─────────────────────────────────── */}
+      {/* ── Dining Halls bento grid ───────────────────────────────────────── */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Open Dining Halls</Text>
+        <Text style={styles.sectionTitle}>Dining Halls</Text>
         <View style={styles.bentoGrid}>
-          {openHalls.map((hall) => (
-            <TouchableOpacity key={hall.id} style={styles.bentoCell} activeOpacity={0.85}>
+          {mockDiningHalls.map((hall) => (
+            <TouchableOpacity key={hall.id} style={[styles.bentoCell, !hall.isOpen && styles.bentoCellClosed]} activeOpacity={0.85}>
               <View style={styles.statusRow}>
-                <View style={styles.statusDot} />
-                <Text style={styles.statusText}>OPEN NOW</Text>
+                <View style={[styles.statusDot, !hall.isOpen && styles.statusDotClosed]} />
+                <Text style={[styles.statusText, !hall.isOpen && styles.statusTextClosed]}>
+                  {hall.isOpen ? 'OPEN NOW' : 'CLOSED'}
+                </Text>
               </View>
               <Text style={styles.bentoName}>{hall.name}</Text>
               <Text style={styles.bentoLocation}>{hall.location}</Text>
               <View style={styles.hoursPill}>
-                <Text style={styles.hoursText}>Closes {hall.closingTime}</Text>
+                <Text style={styles.hoursText}>
+                  {hall.isOpen ? `Closes ${hall.closingTime}` : hall.openingTime ?? 'Check schedule'}
+                </Text>
               </View>
             </TouchableOpacity>
           ))}
@@ -183,7 +203,6 @@ const styles = StyleSheet.create({
   scroll: { flex: 1, backgroundColor: Colors.surface },
   content: { gap: 0 },
 
-  // Hero
   hero: {
     backgroundColor: Colors.primary,
     paddingHorizontal: Spacing.xl,
@@ -213,7 +232,6 @@ const styles = StyleSheet.create({
     lineHeight: 38,
   },
 
-  // Macro card
   macroCard: {
     backgroundColor: Colors.surfaceContainerLowest,
     borderRadius: Radii.card,
@@ -239,10 +257,7 @@ const styles = StyleSheet.create({
   },
   barsCol: { flex: 1 },
 
-  summaryRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
+  summaryRow: { flexDirection: 'row', gap: 8 },
   summaryPill: {
     flex: 1,
     backgroundColor: Colors.surfaceContainerLow,
@@ -251,9 +266,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 2,
   },
-  summaryPillGoal: {
-    backgroundColor: Colors.secondaryFixed,
-  },
+  summaryPillGoal: { backgroundColor: Colors.secondaryFixed },
   summaryValue: {
     fontFamily: FONTS.extraBold,
     fontSize: 16,
@@ -266,7 +279,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
 
-  // Section
   section: {
     paddingHorizontal: Spacing.md,
     marginTop: Spacing.lg,
@@ -288,8 +300,14 @@ const styles = StyleSheet.create({
     color: Colors.primary,
   },
   logList: { gap: 8 },
+  emptyLog: {
+    fontFamily: FONTS.medium,
+    fontSize: 13,
+    color: Colors.onSurfaceVariant,
+    textAlign: 'center',
+    paddingVertical: 20,
+  },
 
-  // Bento grid
   bentoGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -303,6 +321,9 @@ const styles = StyleSheet.create({
     padding: Spacing.md,
     gap: 4,
   },
+  bentoCellClosed: {
+    opacity: 0.6,
+  },
   statusRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 2 },
   statusDot: {
     width: 7,
@@ -310,11 +331,17 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: Colors.openGreen,
   },
+  statusDotClosed: {
+    backgroundColor: Colors.onSurfaceVariant,
+  },
   statusText: {
     fontFamily: FONTS.extraBold,
     fontSize: 9,
     letterSpacing: 1,
     color: Colors.openGreenText,
+  },
+  statusTextClosed: {
+    color: Colors.onSurfaceVariant,
   },
   bentoName: {
     fontFamily: FONTS.extraBold,
@@ -333,11 +360,6 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     alignSelf: 'flex-start',
     marginTop: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    elevation: 1,
   },
   hoursText: {
     fontFamily: FONTS.bold,

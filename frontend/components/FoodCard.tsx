@@ -1,6 +1,7 @@
 // Food item row — used in Log, Search, and Dashboard "Today's Log".
-// mode='full'    → hall + meal context + circular + button
-// mode='compact' → macro numbers instead of context, no + button
+// mode='full'    → hall + serving size context + add button
+// mode='compact' → macro numbers, star rating, trash button
+import { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Colors, FONTS, Radii } from '@/constants/Colors';
@@ -11,16 +12,47 @@ interface Props {
   mode?: 'compact' | 'full';
   onAdd?: (item: FoodItem) => void;
   onRemove?: (item: FoodItem) => void;
+  onRate?: (rating: number) => void;
+  rating?: number;
   added?: boolean;
 }
 
 const HALL_NAMES: Record<string, string> = {
   yahentamitsi: 'Yahentamitsi',
-  'south-campus': 'South Campus Dining Hall',
-  '251-north': '251 North Dining Hall',
+  'south-campus': 'South Campus',
+  '251-north': '251 North',
 };
 
-export function FoodCard({ item, mode = 'full', onAdd, onRemove, added = false }: Props) {
+function StarRating({ rating, onRate }: { rating: number; onRate?: (r: number) => void }) {
+  const [hover, setHover] = useState(0);
+  const display = hover || rating;
+  return (
+    <View style={starStyles.row}>
+      {[1, 2, 3, 4, 5].map((star) => (
+        <TouchableOpacity
+          key={star}
+          onPress={() => onRate?.(star)}
+          activeOpacity={onRate ? 0.7 : 1}
+          disabled={!onRate}
+          style={starStyles.star}
+        >
+          <MaterialIcons
+            name={display >= star ? 'star' : 'star-border'}
+            size={14}
+            color={display >= star ? '#F5A623' : Colors.onSurfaceVariant}
+          />
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+}
+
+const starStyles = StyleSheet.create({
+  row: { flexDirection: 'row', gap: 1 },
+  star: { padding: 1 },
+});
+
+export function FoodCard({ item, mode = 'full', onAdd, onRemove, onRate, rating = 0, added = false }: Props) {
   const isCompact = mode === 'compact';
 
   return (
@@ -34,22 +66,18 @@ export function FoodCard({ item, mode = 'full', onAdd, onRemove, added = false }
       <View style={styles.info}>
         <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
 
-        {!isCompact && (
-          <Text style={styles.context}>
-            {HALL_NAMES[item.diningHallId] ?? item.diningHallId} · {item.mealTime}
-          </Text>
-        )}
-
         {isCompact ? (
-          <Text style={styles.macros}>
-            {item.protein}P · {item.carbs}C · {item.fat}F
-          </Text>
+          <>
+            <Text style={styles.macros}>
+              {item.protein}P · {item.carbs}C · {item.fat}F
+            </Text>
+            <StarRating rating={rating} onRate={onRate} />
+          </>
         ) : (
-          item.dietaryTag && (
-            <View style={styles.tagPill}>
-              <Text style={styles.tagText}>{item.dietaryTag.toUpperCase()}</Text>
-            </View>
-          )
+          <Text style={styles.context}>
+            {HALL_NAMES[item.diningHallId] ?? item.diningHallId}
+            {item.station ? ` · ${item.station}` : ''}
+          </Text>
         )}
       </View>
 
@@ -133,19 +161,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: Colors.onSurfaceVariant,
     letterSpacing: 0.3,
-  },
-  tagPill: {
-    backgroundColor: Colors.secondaryFixed,
-    borderRadius: Radii.pill,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    alignSelf: 'flex-start',
-  },
-  tagText: {
-    fontFamily: FONTS.extraBold,
-    fontSize: 9,
-    color: Colors.onSecondaryFixed,
-    letterSpacing: 0.8,
   },
 
   right: {

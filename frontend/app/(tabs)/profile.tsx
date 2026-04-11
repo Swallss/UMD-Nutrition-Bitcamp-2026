@@ -17,7 +17,7 @@ import { Colors, FONTS, Radii, Spacing } from '@/constants/Colors';
 import { MacroRingHero } from '@/components/MacroRing';
 import { MacroBar } from '@/components/MacroBar';
 import { HeroPattern } from '@/components/HeroPattern';
-import { mockUser, getTodayTotals, formatHeight } from '@/lib/mockData';
+import { getTodayTotals, formatHeight } from '@/lib/mockData';
 import { auth } from '@/lib/firebase';
 import {
   fetchUserProfile,
@@ -51,29 +51,17 @@ const SEX_LABELS: Record<Sex, string> = {
   female: 'Female',
   other: 'Other',
 };
-const DEFAULT_PROFILE: UserProfile = {
-  displayName: mockUser.name,
-  email: mockUser.email,
-  metrics: {
-    activity_level: 'moderate',
-    age: mockUser.age,
-    current_weight_lbs: mockUser.weight,
-    goal_type: 'lose_weight',
-    height_in: mockUser.height,
-    sex: 'male',
-    target_weight_lbs: mockUser.weightTarget,
-  },
-};
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
-  const [profile, setProfile] = useState<UserProfile>(DEFAULT_PROFILE);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [uid, setUid] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [logs, setLogs] = useState<DailyLogEntry[]>([]);
-  const totals = getTodayTotals(logs.filter((entry) => entry.date === todayKey()));
-  const goals = calculateNutritionGoals(profile);
-  const weeklyCalories = logs.length > 0 ? weeklyCaloriesFromLogs(logs) : mockUser.weeklyCalories;
+
+  const totals = getTodayTotals(logs.filter((e) => e.date === todayKey()));
+  const goals = profile ? calculateNutritionGoals(profile) : { calorieGoal: 2000, proteinGoal: 150, carbGoal: 250, fatGoal: 65 };
+  const weeklyCalories = logs.length > 0 ? weeklyCaloriesFromLogs(logs) : [0, 0, 0, 0, 0, 0, 0];
   const maxBar = Math.max(...weeklyCalories, 1);
 
   useEffect(() => {
@@ -87,14 +75,14 @@ export default function ProfileScreen() {
   }, []);
 
   const updateMetric = <K extends keyof UserProfile['metrics']>(key: K, value: UserProfile['metrics'][K]) => {
-    setProfile((prev) => ({
-      ...prev,
-      metrics: { ...prev.metrics, [key]: value },
-    }));
+    setProfile((prev) => {
+      if (!prev) return prev;
+      return { ...prev, metrics: { ...prev.metrics, [key]: value } };
+    });
   };
 
   const handleEditToggle = async () => {
-    if (isEditing && uid) {
+    if (isEditing && uid && profile) {
       try {
         await saveUserProfile(uid, profile);
       } catch (error) {
@@ -114,6 +102,14 @@ export default function ProfileScreen() {
     }
   };
 
+  if (!profile) {
+    return (
+      <View style={{ flex: 1, backgroundColor: Colors.surface, alignItems: 'center', justifyContent: 'center' }}>
+        <Text style={{ fontFamily: FONTS.medium, color: Colors.onSurfaceVariant }}>Loading profile...</Text>
+      </View>
+    );
+  }
+
   return (
     <ScrollView
       style={styles.scroll}
@@ -124,9 +120,6 @@ export default function ProfileScreen() {
         <HeroPattern opacity={0.13} />
         <View style={styles.heroInner}>
           <View style={styles.heroLeft}>
-            <View style={styles.idPill}>
-              <Text style={styles.idText}>User ID: {uid ?? 'not signed in'}</Text>
-            </View>
             <Text style={styles.heroName}>{profile.displayName}</Text>
             <Text style={styles.heroEmail}>{profile.email}</Text>
           </View>
@@ -155,46 +148,66 @@ export default function ProfileScreen() {
             label="Height"
             value={formatHeight(profile.metrics.height_in)}
             editing={isEditing}
-            onChangeText={(v) => updateMetric('height_in', parseInt(v, 10) || profile.metrics.height_in)}
             rawValue={String(profile.metrics.height_in)}
-            hint="inches"
+            hint="inches (e.g. 70)"
+            onChangeText={(v) => {
+              // Height must start with 7 (70–79 inches)
+              const n = parseInt(v, 10);
+              if (!isNaN(n) && String(n).startsWith('7')) updateMetric('height_in', n);
+              else if (v === '' || v === '7') updateMetric('height_in', 70);
+            }}
           />
           <StatTile
             label="Weight"
             value={`${profile.metrics.current_weight_lbs} lbs`}
             editing={isEditing}
-            onChangeText={(v) => updateMetric('current_weight_lbs', parseInt(v, 10) || profile.metrics.current_weight_lbs)}
             rawValue={String(profile.metrics.current_weight_lbs)}
-            hint="lbs"
+            hint="lbs (e.g. 150)"
+            onChangeText={(v) => {
+              // Weight must start with 1
+              const n = parseInt(v, 10);
+              if (!isNaN(n) && String(n).startsWith('1')) updateMetric('current_weight_lbs', n);
+              else if (v === '' || v === '1') updateMetric('current_weight_lbs', 100);
+            }}
           />
           <StatTile
             label="Age"
             value={`${profile.metrics.age} yrs`}
             editing={isEditing}
-            onChangeText={(v) => updateMetric('age', parseInt(v, 10) || profile.metrics.age)}
             rawValue={String(profile.metrics.age)}
-            hint="years"
+            hint="age (e.g. 21)"
+            onChangeText={(v) => {
+              // Age must start with 2 (20–29)
+              const n = parseInt(v, 10);
+              if (!isNaN(n) && String(n).startsWith('2')) updateMetric('age', n);
+              else if (v === '' || v === '2') updateMetric('age', 20);
+            }}
           />
           <StatTile
             label="Target"
             value={`${profile.metrics.target_weight_lbs} lbs`}
             editing={isEditing}
-            onChangeText={(v) => updateMetric('target_weight_lbs', parseInt(v, 10) || profile.metrics.target_weight_lbs)}
             rawValue={String(profile.metrics.target_weight_lbs)}
-            hint="lbs"
+            hint="lbs (e.g. 140)"
+            onChangeText={(v) => {
+              // Target weight must start with 1
+              const n = parseInt(v, 10);
+              if (!isNaN(n) && String(n).startsWith('1')) updateMetric('target_weight_lbs', n);
+              else if (v === '' || v === '1') updateMetric('target_weight_lbs', 100);
+            }}
           />
         </View>
 
         {isEditing ? (
           <>
-            <SelectorRow label="Sex" options={Object.keys(SEX_LABELS) as Sex[]} value={profile.metrics.sex} labels={SEX_LABELS} onSelect={(value) => updateMetric('sex', value)} />
-            <SelectorRow label="Activity Level" options={Object.keys(ACTIVITY_LABELS) as ActivityLevel[]} value={profile.metrics.activity_level} labels={ACTIVITY_LABELS} onSelect={(value) => updateMetric('activity_level', value)} />
-            <SelectorRow label="Goal" options={Object.keys(GOAL_LABELS) as GoalType[]} value={profile.metrics.goal_type} labels={GOAL_LABELS} onSelect={(value) => updateMetric('goal_type', value)} />
+            <SelectorRow label="Sex" options={Object.keys(SEX_LABELS) as Sex[]} value={profile.metrics.sex} labels={SEX_LABELS} onSelect={(v) => updateMetric('sex', v)} />
+            <SelectorRow label="Activity Level" options={Object.keys(ACTIVITY_LABELS) as ActivityLevel[]} value={profile.metrics.activity_level} labels={ACTIVITY_LABELS} onSelect={(v) => updateMetric('activity_level', v)} />
+            <SelectorRow label="Goal" options={Object.keys(GOAL_LABELS) as GoalType[]} value={profile.metrics.goal_type} labels={GOAL_LABELS} onSelect={(v) => updateMetric('goal_type', v)} />
           </>
         ) : (
           <View style={styles.staticMetaRow}>
             <Text style={styles.staticMeta}>{SEX_LABELS[profile.metrics.sex]}</Text>
-            <Text style={styles.staticMeta}>{ACTIVITY_LABELS[profile.metrics.activity_level]}</Text>
+            <Text style={styles.staticMeta}>Activity Level: {ACTIVITY_LABELS[profile.metrics.activity_level]}</Text>
             <Text style={styles.staticMeta}>{GOAL_LABELS[profile.metrics.goal_type]}</Text>
           </View>
         )}
@@ -248,17 +261,9 @@ export default function ProfileScreen() {
 }
 
 function SelectorRow<T extends string>({
-  label,
-  options,
-  value,
-  labels,
-  onSelect,
+  label, options, value, labels, onSelect,
 }: {
-  label: string;
-  options: T[];
-  value: T;
-  labels: Record<T, string>;
-  onSelect: (value: T) => void;
+  label: string; options: T[]; value: T; labels: Record<T, string>; onSelect: (v: T) => void;
 }) {
   return (
     <View style={styles.selectorGroup}>
@@ -278,19 +283,10 @@ function SelectorRow<T extends string>({
 }
 
 function StatTile({
-  label,
-  value,
-  editing,
-  onChangeText,
-  rawValue,
-  hint,
+  label, value, editing, onChangeText, rawValue, hint,
 }: {
-  label: string;
-  value: string;
-  editing: boolean;
-  onChangeText?: (v: string) => void;
-  rawValue?: string;
-  hint?: string;
+  label: string; value: string; editing: boolean;
+  onChangeText?: (v: string) => void; rawValue?: string; hint?: string;
 }) {
   return (
     <View style={tileStyles.tile}>
@@ -358,14 +354,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   heroLeft: { gap: 6, flex: 1 },
-  idPill: {
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    borderRadius: Radii.pill,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    alignSelf: 'flex-start',
-  },
-  idText: { fontFamily: FONTS.semiBold, fontSize: 11, color: Colors.onPrimary },
   heroName: {
     fontFamily: FONTS.extraBold,
     fontSize: 28,
