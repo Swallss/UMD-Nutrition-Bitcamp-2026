@@ -44,9 +44,11 @@ const ACTIVITY_LABELS: Record<ActivityLevel, string> = {
   very_high: 'Very High',
 };
 const GOAL_LABELS: Record<GoalType, string> = {
-  lose_weight: 'Lose Weight',
-  maintain_weight: 'Maintain',
-  gain_weight: 'Gain Weight',
+  extreme_weight_loss: 'Extreme Weight Loss',
+  moderate_weight_loss: 'Moderate Weight Loss',
+  maintain_weight: 'Maintain Weight',
+  moderate_weight_gain: 'Moderate Weight Gain',
+  extreme_weight_gain: 'Extreme Weight Gain',
 };
 const SEX_LABELS: Record<Sex, string> = {
   male: 'Male',

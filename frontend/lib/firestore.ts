@@ -19,7 +19,12 @@ import { db } from '@/lib/firebase';
 import { mockFoodItems, mockUser, type FoodItem, type LogEntry, type MealTime } from '@/lib/mockData';
 
 export type ActivityLevel = 'low' | 'light' | 'moderate' | 'high' | 'very_high';
-export type GoalType = 'lose_weight' | 'maintain_weight' | 'gain_weight';
+export type GoalType =
+  | 'extreme_weight_loss'
+  | 'moderate_weight_loss'
+  | 'maintain_weight'
+  | 'moderate_weight_gain'
+  | 'extreme_weight_gain';
 export type Sex = 'male' | 'female' | 'other';
 
 export interface UserProfile {
@@ -52,7 +57,7 @@ const DEFAULT_METRICS: UserProfile['metrics'] = {
   activity_level: 'moderate',
   age: mockUser.age,
   current_weight_lbs: mockUser.weight,
-  goal_type: 'lose_weight',
+  goal_type: 'maintain_weight',
   height_in: mockUser.height,
   sex: 'male',
   target_weight_lbs: mockUser.weightTarget,
@@ -95,6 +100,7 @@ function normalizeProfile(
   user?: User,
 ): UserProfile {
   const m = data?.metrics ?? DEFAULT_METRICS;
+  const goalType = normalizeGoalType(m.goal_type);
   return {
     displayName: user?.displayName ?? data?.displayName ?? 'Terp',
     email:       user?.email       ?? data?.email       ?? '',
@@ -102,7 +108,7 @@ function normalizeProfile(
       activity_level:      m.activity_level      ?? DEFAULT_METRICS.activity_level,
       age:                 m.age                 ?? DEFAULT_METRICS.age,
       current_weight_lbs:  m.current_weight_lbs  ?? DEFAULT_METRICS.current_weight_lbs,
-      goal_type:           m.goal_type           ?? DEFAULT_METRICS.goal_type,
+      goal_type:           goalType,
       height_in:           m.height_in           ?? DEFAULT_METRICS.height_in,
       sex:                 m.sex                 ?? DEFAULT_METRICS.sex,
       target_weight_lbs:   m.target_weight_lbs   ?? DEFAULT_METRICS.target_weight_lbs,
@@ -111,6 +117,21 @@ function normalizeProfile(
     onboarding_complete: data?.onboarding_complete ?? false,
     updatedAt:          data?.updatedAt,
   };
+}
+
+function normalizeGoalType(value: unknown): GoalType {
+  if (value === 'lose_weight') return 'moderate_weight_loss';
+  if (value === 'gain_weight') return 'moderate_weight_gain';
+  if (
+    value === 'extreme_weight_loss' ||
+    value === 'moderate_weight_loss' ||
+    value === 'maintain_weight' ||
+    value === 'moderate_weight_gain' ||
+    value === 'extreme_weight_gain'
+  ) {
+    return value;
+  }
+  return DEFAULT_METRICS.goal_type;
 }
 
 // ── Food items ────────────────────────────────────────────────────────────────
