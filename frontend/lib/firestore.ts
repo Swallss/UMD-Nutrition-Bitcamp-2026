@@ -16,7 +16,7 @@ import {
 } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import { db } from '@/lib/firebase';
-import { mockFoodItems, mockUser, type FoodItem, type LogEntry, type MealTime } from '@/lib/mockData';
+import { formatFoodName, mockFoodItems, mockUser, type FoodItem, type LogEntry, type MealTime } from '@/lib/mockData';
 
 export type ActivityLevel = 'low' | 'light' | 'moderate' | 'high' | 'very_high';
 export type GoalType =
@@ -52,6 +52,8 @@ export interface DailyLogEntry extends LogEntry {
   loggedAtTimestamp?: Timestamp;
   rating?: number;
 }
+
+export type DiningHallTraffic = Record<string, number[]>;
 
 const DEFAULT_METRICS: UserProfile['metrics'] = {
   activity_level: 'moderate',
@@ -142,7 +144,7 @@ export function mapItemDoc(id: string, data: Record<string, any>): FoodItem {
   const diningHallId = LOCATION_TO_HALL[rawLoc] ?? LOCATION_TO_HALL[rawLoc.toUpperCase()] ?? rawLoc.toLowerCase();
   return {
     id,
-    name:        data.name        ?? 'Unknown item',
+    name:        formatFoodName(data.name ?? 'Unknown item'),
     calories:    Math.round(Number(data.calories       ?? 0)),
     protein:     Number(data.protein_g    ?? data.protein ?? 0),
     carbs:       Number(data.total_carbs_g ?? data.carbs   ?? 0),
@@ -174,6 +176,19 @@ export async function fetchFoodItems(): Promise<FoodItem[]> {
     return mockFoodItems;
   }
   return snapshot.docs.map((d) => mapItemDoc(d.id, d.data() as Record<string, any>));
+}
+
+export async function fetchDiningHallTraffic(): Promise<DiningHallTraffic> {
+  const snapshot = await getDocs(collection(db, 'diningHallTraffic'));
+  return snapshot.docs.reduce<DiningHallTraffic>((traffic, trafficDoc) => {
+    const data = trafficDoc.data();
+    if (Array.isArray(data.hourlyTraffic)) {
+      traffic[trafficDoc.id] = data.hourlyTraffic
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value));
+    }
+    return traffic;
+  }, {});
 }
 
 // ── User profile ──────────────────────────────────────────────────────────────
@@ -248,8 +263,7 @@ export async function saveUserProfile(uid: string, profile: UserProfile): Promis
 export async function fetchDailyLogs(userId: string, date = todayKey()): Promise<DailyLogEntry[]> {
   const snapshot = await getDocs(
     query(
-      collection(db, 'dailyLogs'),
-      where('userId', '==', userId),
+      collection(db, 'users', userId, 'dailyLogs'),
       where('date',   '==', date),
     ),
   );
@@ -259,7 +273,7 @@ export async function fetchDailyLogs(userId: string, date = todayKey()): Promise
       id:              d.id,
       userId,
       foodItemId:      data.foodItemId  ?? d.id,
-      foodName:        data.foodName    ?? 'Unknown',
+      foodName:        formatFoodName(data.foodName    ?? 'Unknown'),
       calories:        Number(data.calories  ?? 0),
       protein:         Number(data.protein   ?? 0),
       carbs:           Number(data.carbs     ?? 0),
@@ -278,7 +292,7 @@ export async function fetchDailyLogs(userId: string, date = todayKey()): Promise
 
 export async function fetchUserLogs(userId: string): Promise<DailyLogEntry[]> {
   const snapshot = await getDocs(
-    query(collection(db, 'dailyLogs'), where('userId', '==', userId), limit(500)),
+    query(collection(db, 'users', userId, 'dailyLogs'), orderBy('date', 'desc'), limit(500)),
   );
   return snapshot.docs.map((d) => {
     const data = d.data();
@@ -286,7 +300,7 @@ export async function fetchUserLogs(userId: string): Promise<DailyLogEntry[]> {
       id:              d.id,
       userId,
       foodItemId:      data.foodItemId  ?? d.id,
-      foodName:        data.foodName    ?? 'Unknown',
+      foodName:        formatFoodName(data.foodName    ?? 'Unknown'),
       calories:        Number(data.calories  ?? 0),
       protein:         Number(data.protein   ?? 0),
       carbs:           Number(data.carbs     ?? 0),
@@ -323,10 +337,10 @@ export async function addDailyLog(
   quantity: number,
   mealTime: MealTime,
 ): Promise<void> {
-  await addDoc(collection(db, 'dailyLogs'), {
+  await addDoc(collection(db, 'users', userId, 'dailyLogs'), {
     userId,
     foodItemId:     item.id,
-    foodName:       item.name,
+    foodName:       formatFoodName(item.name),
     calories:       Math.round(item.calories * quantity),
     protein:        Number((item.protein * quantity).toFixed(1)),
     carbs:          Number((item.carbs   * quantity).toFixed(1)),
@@ -342,10 +356,10 @@ export async function addDailyLog(
   });
 }
 
-export async function updateLogRating(logId: string, rating: number): Promise<void> {
-  await updateDoc(doc(db, 'dailyLogs', logId), { rating });
+export async function updateLogRating(userId: string, logId: string, rating: number): Promise<void> {
+  await updateDoc(doc(db, 'users', userId, 'dailyLogs', logId), { rating });
 }
 
-export async function removeDailyLog(logId: string): Promise<void> {
-  await deleteDoc(doc(db, 'dailyLogs', logId));
+export async function removeDailyLog(userId: string, logId: string): Promise<void> {
+  await deleteDoc(doc(db, 'users', userId, 'dailyLogs', logId));
 }

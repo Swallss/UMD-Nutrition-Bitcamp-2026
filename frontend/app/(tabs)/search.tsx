@@ -15,7 +15,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { Colors, FONTS, Radii, Spacing } from '@/constants/Colors';
 import { FoodCard } from '@/components/FoodCard';
 import { DiningHallPicker } from '@/components/DiningHallPicker';
-import { mockFoodItems, type FoodItem } from '@/lib/mockData';
+import { formatFoodName, mockFoodItems, type FoodItem } from '@/lib/mockData';
 import { auth } from '@/lib/firebase';
 import { addDailyLog, fetchFoodItems } from '@/lib/firestore';
 
@@ -48,7 +48,7 @@ export default function SearchScreen() {
 
     try {
       await addDailyLog(user.uid, item, 1, item.mealTime);
-      Alert.alert('Added to log!', item.name, [{ text: 'OK' }]);
+      Alert.alert('Added to log!', formatFoodName(item.name), [{ text: 'OK' }]);
     } catch (error) {
       Alert.alert('Could not add item', error instanceof Error ? error.message : 'Please try again.');
     }

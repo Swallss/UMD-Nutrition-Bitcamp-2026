@@ -135,6 +135,14 @@ export const mockDiningHalls: DiningHall[] = [
 
 export const mockFoodItems: FoodItem[] = [];
 
+export function formatFoodName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/\b[a-z]/g, (letter) => letter.toUpperCase())
+    .replace(/\bBbq\b/g, 'BBQ')
+    .replace(/\bDmv\b/g, 'DMV');
+}
+
 export interface MacroTotals {
   calories: number;
   protein: number;

@@ -4,7 +4,7 @@
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Colors, FONTS, Radii } from '@/constants/Colors';
-import type { FoodItem } from '@/lib/mockData';
+import { formatFoodName, type FoodItem } from '@/lib/mockData';
 
 interface Props {
   item: FoodItem;
@@ -51,6 +51,7 @@ const starStyles = StyleSheet.create({
 
 export function FoodCard({ item, mode = 'full', onAdd, onRemove, onRate, rating = 0, added = false }: Props) {
   const isCompact = mode === 'compact';
+  const displayName = formatFoodName(item.name);
 
   return (
     <View style={[styles.card, isCompact && styles.cardCompact]}>
@@ -61,7 +62,7 @@ export function FoodCard({ item, mode = 'full', onAdd, onRemove, onRate, rating 
 
       {/* Info */}
       <View style={styles.info}>
-        <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
+        <Text style={styles.name} numberOfLines={1}>{displayName}</Text>
 
         {isCompact ? (
           <>

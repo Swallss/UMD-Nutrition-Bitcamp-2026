@@ -1,5 +1,5 @@
 // Profile - Firestore-backed metrics and derived nutrition goals.
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Platform,
@@ -36,6 +36,41 @@ import {
 import { calculateNutritionGoals } from '@/lib/nutritionGoals';
 
 const DAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+const CALENDAR_DAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+type CalendarCell = { dateKey: string; inMonth: boolean };
+
+function formatHistoryDate(dateKey: string) {
+  const date = new Date(`${dateKey}T12:00:00`);
+  const today = todayKey();
+  const yesterdayDate = new Date();
+  yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+  const yesterday = todayKey(yesterdayDate);
+  if (dateKey === today) return 'Today';
+  if (dateKey === yesterday) return 'Yesterday';
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function totalsForLogs(logs: DailyLogEntry[]) {
+  return getTodayTotals(logs);
+}
+
+function getMonthDateKeys(seedDateKey: string): CalendarCell[] {
+  const seed = new Date(`${seedDateKey}T12:00:00`);
+  const year = seed.getFullYear();
+  const month = seed.getMonth();
+  const firstDay = new Date(year, month, 1);
+  const start = new Date(firstDay);
+  start.setDate(1 - firstDay.getDay());
+  return Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(start);
+    date.setDate(start.getDate() + index);
+    return {
+      dateKey: todayKey(date),
+      inMonth: date.getMonth() === month,
+    };
+  });
+}
+
 const ACTIVITY_LABELS: Record<ActivityLevel, string> = {
   low: 'Low',
   light: 'Light',
@@ -63,11 +98,32 @@ export default function ProfileScreen() {
   const [isSaving, setIsSaving] = useState(false);
   const [draftValues, setDraftValues] = useState<Record<string, string>>({});
   const [logs, setLogs] = useState<DailyLogEntry[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
+  const [selectedHistoryDate, setSelectedHistoryDate] = useState(todayKey());
 
   const totals = getTodayTotals(logs.filter((e) => e.date === todayKey()));
   const goals = profile ? calculateNutritionGoals(profile) : { calorieGoal: 2000, proteinGoal: 150, carbGoal: 250, fatGoal: 65 };
   const weeklyCalories = logs.length > 0 ? weeklyCaloriesFromLogs(logs) : [0, 0, 0, 0, 0, 0, 0];
   const maxBar = Math.max(...weeklyCalories, 1);
+  const monthDates = useMemo(() => getMonthDateKeys(selectedHistoryDate), [selectedHistoryDate]);
+  const logsByDate = useMemo(() => {
+    return logs.reduce<Record<string, DailyLogEntry[]>>((groups, entry) => {
+      groups[entry.date] = [...(groups[entry.date] ?? []), entry];
+      return groups;
+    }, {});
+  }, [logs]);
+  const selectedHistoryLogs = logsByDate[selectedHistoryDate] ?? [];
+  const selectedHistoryTotals = totalsForLogs(selectedHistoryLogs);
+  const selectedMonthLabel = new Date(`${selectedHistoryDate}T12:00:00`).toLocaleDateString('en-US', {
+    month: 'long',
+    year: 'numeric',
+  });
+  const shiftSelectedMonth = useCallback((delta: number) => {
+    setSelectedHistoryDate((dateKey) => {
+      const date = new Date(`${dateKey}T12:00:00`);
+      return todayKey(new Date(date.getFullYear(), date.getMonth() + delta, 1));
+    });
+  }, []);
 
   const refreshProfile = useCallback(async () => {
     const user = auth.currentUser;
@@ -283,10 +339,15 @@ export default function ProfileScreen() {
       </View>
 
       <View style={styles.chartCard}>
-        <Text style={styles.chartTitle}>Weekly Trend</Text>
-        <Text style={styles.chartSub}>
-          Avg {Math.round(weeklyCalories.reduce((a, b) => a + b, 0) / 7)} kcal/day
-        </Text>
+        <TouchableOpacity style={styles.chartHeader} activeOpacity={0.9} onPress={() => setShowHistory((value) => !value)}>
+          <View>
+            <Text style={styles.chartTitle}>Weekly Trend</Text>
+            <Text style={styles.chartSub}>
+              Avg {Math.round(weeklyCalories.reduce((a, b) => a + b, 0) / 7)} kcal/day
+            </Text>
+          </View>
+          <Text style={styles.historyToggle}>{showHistory ? 'Hide' : 'History'}</Text>
+        </TouchableOpacity>
         <View style={styles.barChart}>
           {weeklyCalories.map((val, i) => {
             const isToday = i === 6;
@@ -307,6 +368,70 @@ export default function ProfileScreen() {
             );
           })}
         </View>
+
+        {showHistory && (
+          <View style={styles.historyPanel}>
+            <View style={styles.calendarWrap}>
+                <View style={styles.calendarTitleRow}>
+                  <TouchableOpacity style={styles.calendarNavButton} onPress={() => shiftSelectedMonth(-1)}>
+                    <MaterialIcons name="chevron-left" size={18} color={Colors.primary} />
+                  </TouchableOpacity>
+                  <Text style={styles.calendarTitle}>{selectedMonthLabel}</Text>
+                  <TouchableOpacity style={styles.calendarNavButton} onPress={() => shiftSelectedMonth(1)}>
+                    <MaterialIcons name="chevron-right" size={18} color={Colors.primary} />
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.calendarWeekHeader}>
+                  {CALENDAR_DAYS.map((day, index) => (
+                    <Text key={`${day}-${index}`} style={styles.calendarWeekDay}>{day}</Text>
+                  ))}
+                </View>
+                <View style={styles.calendarGrid}>
+                  {monthDates.map(({ dateKey, inMonth }) => {
+                    const active = dateKey === selectedHistoryDate;
+                    const dayTotals = totalsForLogs(logsByDate[dateKey] ?? []);
+                    return (
+                      <TouchableOpacity
+                        key={dateKey}
+                        style={[
+                          styles.calendarDay,
+                          !inMonth && styles.calendarDayOutside,
+                          active && styles.calendarDayActive,
+                        ]}
+                        onPress={() => setSelectedHistoryDate(dateKey)}
+                      >
+                        <Text style={[styles.calendarDayNumber, active && styles.calendarDayNumberActive]}>
+                          {Number(dateKey.slice(-2))}
+                        </Text>
+                        {dayTotals.calories > 0 && <Text style={[styles.calendarDayDot, active && styles.calendarDayNumberActive]}>•</Text>}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+            </View>
+            <View style={styles.historySummary}>
+              <Text style={styles.historyTitle}>{formatHistoryDate(selectedHistoryDate)}</Text>
+              <Text style={styles.historyMeta}>
+                {selectedHistoryTotals.calories} cal - {Math.round(selectedHistoryTotals.protein)}g protein - {Math.round(selectedHistoryTotals.carbs)}g carbs - {Math.round(selectedHistoryTotals.fat)}g fat
+              </Text>
+            </View>
+            {selectedHistoryLogs.length === 0 ? (
+              <Text style={styles.historyEmpty}>No meals logged for this day.</Text>
+            ) : (
+              <View style={styles.historyList}>
+                {selectedHistoryLogs.map((entry) => (
+                  <View key={entry.id} style={styles.historyItem}>
+                    <View style={styles.historyItemMain}>
+                      <Text style={styles.historyItemName} numberOfLines={1}>{entry.foodName}</Text>
+                      <Text style={styles.historyItemMeta}>{entry.mealTime} - {entry.loggedAt || 'Logged'}</Text>
+                    </View>
+                    <Text style={styles.historyItemCalories}>{entry.calories} cal</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+          </View>
+        )}
       </View>
     </ScrollView>
   );
@@ -535,8 +660,23 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
     marginBottom: Spacing.md,
   },
+  chartHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: Spacing.md,
+  },
   chartTitle: { fontFamily: FONTS.extraBold, fontSize: 17, color: Colors.onSecondaryFixed },
   chartSub: { fontFamily: FONTS.medium, fontSize: 12, color: Colors.onSecondaryFixedVariant },
+  historyToggle: {
+    fontFamily: FONTS.extraBold,
+    fontSize: 12,
+    color: Colors.onSecondaryFixed,
+    backgroundColor: 'rgba(255,255,255,0.5)',
+    borderRadius: Radii.pill,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
   barChart: {
     flexDirection: 'row',
     alignItems: 'flex-end',
@@ -551,5 +691,119 @@ const styles = StyleSheet.create({
     fontSize: 9,
     color: Colors.onSecondaryFixedVariant,
     letterSpacing: 0.3,
+  },
+  historyPanel: {
+    backgroundColor: Colors.surfaceContainerLowest,
+    borderRadius: Radii.innerCard,
+    padding: 10,
+    gap: 10,
+    marginTop: 4,
+  },
+  calendarWrap: {
+    backgroundColor: Colors.surfaceContainerLowest,
+    borderRadius: Radii.innerCard,
+    borderWidth: 1,
+    borderColor: Colors.surfaceContainerHigh,
+    padding: 6,
+    gap: 5,
+  },
+  calendarTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  calendarNavButton: {
+    width: 26,
+    height: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: Radii.pill,
+    backgroundColor: `${Colors.primary}12`,
+  },
+  calendarTitle: {
+    fontFamily: FONTS.extraBold,
+    fontSize: 12,
+    color: Colors.onSurface,
+  },
+  calendarWeekHeader: {
+    flexDirection: 'row',
+  },
+  calendarWeekDay: {
+    flex: 1,
+    textAlign: 'center',
+    fontFamily: FONTS.bold,
+    fontSize: 9,
+    color: Colors.onSurfaceVariant,
+  },
+  calendarGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  calendarDay: {
+    width: '14.285%',
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: Radii.pill,
+    backgroundColor: 'transparent',
+  },
+  calendarDayActive: { backgroundColor: Colors.primary },
+  calendarDayOutside: {
+    opacity: 0.35,
+  },
+  calendarDayNumber: {
+    fontFamily: FONTS.extraBold,
+    fontSize: 10,
+    color: Colors.onSurface,
+  },
+  calendarDayNumberActive: { color: Colors.onPrimary },
+  calendarDayDot: {
+    fontFamily: FONTS.extraBold,
+    fontSize: 9,
+    lineHeight: 9,
+    color: Colors.primary,
+  },
+  historySummary: { gap: 3 },
+  historyTitle: {
+    fontFamily: FONTS.extraBold,
+    fontSize: 15,
+    color: Colors.onSurface,
+  },
+  historyMeta: {
+    fontFamily: FONTS.medium,
+    fontSize: 12,
+    color: Colors.onSurfaceVariant,
+  },
+  historyEmpty: {
+    fontFamily: FONTS.medium,
+    fontSize: 13,
+    color: Colors.onSurfaceVariant,
+    textAlign: 'center',
+    paddingVertical: 10,
+  },
+  historyList: { gap: 8 },
+  historyItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: Colors.surfaceContainerLow,
+    borderRadius: Radii.innerCard,
+    padding: 12,
+  },
+  historyItemMain: { flex: 1 },
+  historyItemName: {
+    fontFamily: FONTS.bold,
+    fontSize: 13,
+    color: Colors.onSurface,
+  },
+  historyItemMeta: {
+    fontFamily: FONTS.medium,
+    fontSize: 11,
+    color: Colors.onSurfaceVariant,
+  },
+  historyItemCalories: {
+    fontFamily: FONTS.extraBold,
+    fontSize: 12,
+    color: Colors.primary,
   },
 });

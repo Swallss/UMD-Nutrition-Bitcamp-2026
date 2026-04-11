@@ -27,7 +27,7 @@ import { auth } from '@/lib/firebase';
 import { addDailyLog, fetchDailyLogs, fetchFoodItems } from '@/lib/firestore';
 
 // How many items to show when the user hasn't searched yet
-const BROWSE_LIMIT = 5;
+const BROWSE_PAGE_SIZE = 25;
 
 export default function LogScreen() {
   const insets = useSafeAreaInsets();
@@ -40,27 +40,33 @@ export default function LogScreen() {
   const [todayLogs, setTodayLogs] = useState<LogEntry[]>([]);
   const [pendingItems, setPendingItems] = useState<Record<string, { item: FoodItem; quantity: number }>>({});
   const [isSaving, setIsSaving] = useState(false);
+  const [visibleBrowseCount, setVisibleBrowseCount] = useState(BROWSE_PAGE_SIZE);
 
   const baseTotals = getTodayTotals(todayLogs);
   const pendingEntries = Object.values(pendingItems);
   const sessionCalories = pendingEntries.reduce((s, e) => s + e.item.calories * e.quantity, 0);
   const runningCalories = baseTotals.calories + sessionCalories;
 
-  // True when the user is actively searching or filtering — show all results.
-  const isSearching = query.length > 0 || selectedHall !== null;
-
   // Items to display in the list
   const displayed = useMemo(() => {
-    if (!isSearching) {
-      // No filter active — show a small preview from the full dataset
-      return allFoodItems.slice(0, BROWSE_LIMIT);
-    }
     return allFoodItems.filter((item) => {
       const matchQuery = query.length === 0 || item.name.toLowerCase().includes(query.toLowerCase());
       const matchHall  = selectedHall === null  || item.diningHallId === selectedHall;
       return matchQuery && matchHall;
-    });
-  }, [allFoodItems, query, selectedHall, isSearching]);
+    }).slice(0, visibleBrowseCount);
+  }, [allFoodItems, query, selectedHall, visibleBrowseCount]);
+
+  const totalMatchingItems = useMemo(() => {
+    return allFoodItems.filter((item) => {
+      const matchQuery = query.length === 0 || item.name.toLowerCase().includes(query.toLowerCase());
+      const matchHall  = selectedHall === null  || item.diningHallId === selectedHall;
+      return matchQuery && matchHall;
+    }).length;
+  }, [allFoodItems, query, selectedHall]);
+
+  useEffect(() => {
+    setVisibleBrowseCount(BROWSE_PAGE_SIZE);
+  }, [query, selectedHall]);
 
   const refreshTodayLogs = useCallback(async () => {
     const user = auth.currentUser;
@@ -200,9 +206,7 @@ export default function LogScreen() {
       {/* Result count / hint */}
       {!isLoading && !loadError && (
         <Text style={styles.countLabel}>
-          {isSearching
-            ? `${displayed.length} result${displayed.length === 1 ? '' : 's'}`
-            : `Showing ${Math.min(BROWSE_LIMIT, allFoodItems.length)} of ${allFoodItems.length} items — search to find any dish`}
+          {`Showing ${displayed.length} of ${totalMatchingItems} item${totalMatchingItems === 1 ? '' : 's'}`}
         </Text>
       )}
     </View>
@@ -256,6 +260,17 @@ export default function LogScreen() {
         }
         contentContainerStyle={styles.listContent}
         ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
+        ListFooterComponent={
+          displayed.length < totalMatchingItems ? (
+            <TouchableOpacity
+              style={styles.loadMoreButton}
+              onPress={() => setVisibleBrowseCount((count) => count + BROWSE_PAGE_SIZE)}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.loadMoreText}>Show More</Text>
+            </TouchableOpacity>
+          ) : null
+        }
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
@@ -368,6 +383,19 @@ const styles = StyleSheet.create({
     color: Colors.onSurfaceVariant,
     textAlign: 'center',
     paddingHorizontal: 24,
+  },
+  loadMoreButton: {
+    alignSelf: 'center',
+    backgroundColor: Colors.secondaryFixed,
+    borderRadius: Radii.pill,
+    paddingHorizontal: 22,
+    paddingVertical: 12,
+    marginTop: 16,
+  },
+  loadMoreText: {
+    fontFamily: FONTS.extraBold,
+    fontSize: 13,
+    color: Colors.onSecondaryFixed,
   },
 
   fab: {
