@@ -1,5 +1,5 @@
 // Profile - Firestore-backed metrics and derived nutrition goals.
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Alert,
   ScrollView,
@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { signOut } from 'firebase/auth';
 import { Colors, FONTS, Radii, Spacing } from '@/constants/Colors';
 import { MacroRingHero } from '@/components/MacroRing';
@@ -56,7 +56,6 @@ const SEX_LABELS: Record<Sex, string> = {
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [uid, setUid] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [draftValues, setDraftValues] = useState<Record<string, string>>({});
@@ -67,17 +66,39 @@ export default function ProfileScreen() {
   const weeklyCalories = logs.length > 0 ? weeklyCaloriesFromLogs(logs) : [0, 0, 0, 0, 0, 0, 0];
   const maxBar = Math.max(...weeklyCalories, 1);
 
+  const refreshProfile = useCallback(async () => {
+    const user = auth.currentUser;
+    if (!user) {
+      setProfile(null);
+      setLogs([]);
+      return;
+    }
+
+    const [nextProfile, nextLogs] = await Promise.all([
+      fetchUserProfile(user.uid).catch(() => getDefaultProfile(user)),
+      fetchUserLogs(user.uid).catch(() => []),
+    ]);
+    setProfile(nextProfile);
+    setLogs(nextLogs);
+  }, []);
+
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged((user) => {
-      setUid(user?.uid ?? null);
-      if (!user) return;
-      fetchUserProfile(user.uid)
-        .then(setProfile)
-        .catch(() => setProfile(getDefaultProfile(user)));
-      fetchUserLogs(user.uid).then(setLogs).catch(() => setLogs([]));
+      if (!user) {
+        setProfile(null);
+        setLogs([]);
+        return;
+      }
+      refreshProfile();
     });
     return unsubscribe;
-  }, []);
+  }, [refreshProfile]);
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshProfile();
+    }, [refreshProfile]),
+  );
 
   const updateMetric = <K extends keyof UserProfile['metrics']>(key: K, value: UserProfile['metrics'][K]) => {
     setProfile((prev) => {

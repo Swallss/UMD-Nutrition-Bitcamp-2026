@@ -1,7 +1,6 @@
 // Food item row — used in Log, Search, and Dashboard "Today's Log".
 // mode='full'    → hall + serving size context + add button
 // mode='compact' → macro numbers, star rating, trash button
-import { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Colors, FONTS, Radii } from '@/constants/Colors';
@@ -24,8 +23,6 @@ const HALL_NAMES: Record<string, string> = {
 };
 
 function StarRating({ rating, onRate }: { rating: number; onRate?: (r: number) => void }) {
-  const [hover, setHover] = useState(0);
-  const display = hover || rating;
   return (
     <View style={starStyles.row}>
       {[1, 2, 3, 4, 5].map((star) => (
@@ -37,9 +34,9 @@ function StarRating({ rating, onRate }: { rating: number; onRate?: (r: number) =
           style={starStyles.star}
         >
           <MaterialIcons
-            name={display >= star ? 'star' : 'star-border'}
+            name={rating >= star ? 'star' : 'star-border'}
             size={14}
-            color={display >= star ? '#F5A623' : Colors.onSurfaceVariant}
+            color={rating >= star ? '#F5A623' : Colors.onSurfaceVariant}
           />
         </TouchableOpacity>
       ))}
