@@ -10,7 +10,16 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.umdnutrition.app"
+      "bundleIdentifier": "com.umdnutrition.app",
+      "infoPlist": {
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLSchemes": [
+              "com.googleusercontent.apps.263060087857-ch670ghjo7qar8h1fg3pos7dn8057363"
+            ]
+          }
+        ]
+      }
     },
     "android": {
       "package": "com.umdnutrition.app",

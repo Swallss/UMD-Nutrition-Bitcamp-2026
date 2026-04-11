@@ -1,6 +1,5 @@
-// Log Food — search UMD dining items by name/hall, add to today's log.
-// Meal-time filter removed (scraped data has no meal info).
-import { useEffect, useState, useCallback } from 'react';
+// Log Food — shows 5 items by default; search/filter to see any item in Firestore.
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   Alert,
   View,
@@ -18,7 +17,6 @@ import { Colors, FONTS, Radii, Spacing } from '@/constants/Colors';
 import { FoodCard } from '@/components/FoodCard';
 import { DiningHallPicker } from '@/components/DiningHallPicker';
 import {
-  mockFoodItems,
   getTodayTotals,
   getCurrentMealTime,
   type FoodItem,
@@ -28,12 +26,17 @@ import {
 import { auth } from '@/lib/firebase';
 import { addDailyLog, fetchDailyLogs, fetchFoodItems } from '@/lib/firestore';
 
+// How many items to show when the user hasn't searched yet
+const BROWSE_LIMIT = 5;
+
 export default function LogScreen() {
   const insets = useSafeAreaInsets();
   const [query, setQuery] = useState('');
   const [selectedHall, setSelectedHall] = useState<string | null>(null);
-  const [foodItems, setFoodItems] = useState<FoodItem[]>([]);
+  // All food items fetched from Firestore (kept in memory for instant search)
+  const [allFoodItems, setAllFoodItems] = useState<FoodItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [todayLogs, setTodayLogs] = useState<LogEntry[]>([]);
   const [pendingItems, setPendingItems] = useState<Record<string, { item: FoodItem; quantity: number }>>({});
   const [isSaving, setIsSaving] = useState(false);
@@ -43,26 +46,45 @@ export default function LogScreen() {
   const sessionCalories = pendingEntries.reduce((s, e) => s + e.item.calories * e.quantity, 0);
   const runningCalories = baseTotals.calories + sessionCalories;
 
+  // True when the user is actively searching or filtering — show all results.
+  const isSearching = query.length > 0 || selectedHall !== null;
+
+  // Items to display in the list
+  const displayed = useMemo(() => {
+    if (!isSearching) {
+      // No filter active — show a small preview from the full dataset
+      return allFoodItems.slice(0, BROWSE_LIMIT);
+    }
+    return allFoodItems.filter((item) => {
+      const matchQuery = query.length === 0 || item.name.toLowerCase().includes(query.toLowerCase());
+      const matchHall  = selectedHall === null  || item.diningHallId === selectedHall;
+      return matchQuery && matchHall;
+    });
+  }, [allFoodItems, query, selectedHall, isSearching]);
+
   useEffect(() => {
     setIsLoading(true);
+    setLoadError(null);
     fetchFoodItems()
-      .then(setFoodItems)
-      .catch(() => setFoodItems(mockFoodItems))
+      .then((items) => {
+        setAllFoodItems(items);
+        setLoadError(null);
+      })
+      .catch((err) => {
+        console.error('[LogScreen] fetchFoodItems error:', err);
+        setLoadError(
+          'Could not load food items. Check Firestore security rules:\n' +
+          'match /items/{id} { allow read: if true; }',
+        );
+      })
       .finally(() => setIsLoading(false));
 
-    const unsubscribe = auth.onAuthStateChanged((user) => {
+    const unsub = auth.onAuthStateChanged((user) => {
       if (!user) { setTodayLogs([]); return; }
       fetchDailyLogs(user.uid).then(setTodayLogs).catch(() => setTodayLogs([]));
     });
-    return unsubscribe;
+    return unsub;
   }, []);
-
-  const filtered = foodItems.filter((item) => {
-    const matchQuery =
-      query.length === 0 || item.name.toLowerCase().includes(query.toLowerCase());
-    const matchHall = selectedHall === null || item.diningHallId === selectedHall;
-    return matchQuery && matchHall;
-  });
 
   const handleAdd = useCallback((item: FoodItem) => {
     setPendingItems((prev) => ({
@@ -75,12 +97,12 @@ export default function LogScreen() {
     setPendingItems((prev) => {
       const entry = prev[itemId];
       if (!entry) return prev;
-      const nextQty = entry.quantity + delta;
-      if (nextQty <= 0) {
-        const { [itemId]: _removed, ...rest } = prev;
+      const next = entry.quantity + delta;
+      if (next <= 0) {
+        const { [itemId]: _, ...rest } = prev;
         return rest;
       }
-      return { ...prev, [itemId]: { ...entry, quantity: nextQty } };
+      return { ...prev, [itemId]: { ...entry, quantity: next } };
     });
   };
 
@@ -108,14 +130,14 @@ export default function LogScreen() {
 
   const ListHeader = (
     <View style={styles.listHeader}>
-      {/* Search */}
+      {/* Search bar */}
       <View style={styles.searchBox}>
         <View style={styles.searchIconWrap}>
           <MaterialIcons name="search" size={20} color={Colors.onSecondaryContainer} />
         </View>
         <TextInput
           style={styles.searchInput}
-          placeholder="Search dishes..."
+          placeholder="Search all dishes..."
           placeholderTextColor={Colors.onSurfaceVariant}
           value={query}
           onChangeText={setQuery}
@@ -129,10 +151,10 @@ export default function LogScreen() {
         )}
       </View>
 
-      {/* Hall picker */}
+      {/* Dining hall filter */}
       <DiningHallPicker selected={selectedHall} onSelect={setSelectedHall} />
 
-      {/* Pending items */}
+      {/* Ready-to-log pending items */}
       {pendingEntries.length > 0 && (
         <View style={styles.pendingBox}>
           <Text style={styles.pendingTitle}>Ready to log</Text>
@@ -144,12 +166,12 @@ export default function LogScreen() {
                   {Math.round(item.calories * quantity)} cal · {quantity} serving{quantity === 1 ? '' : 's'}
                 </Text>
               </View>
-              <View style={styles.quantityControls}>
-                <TouchableOpacity onPress={() => updateQuantity(item.id, -1)} style={styles.quantityBtn}>
+              <View style={styles.qtyRow}>
+                <TouchableOpacity onPress={() => updateQuantity(item.id, -1)} style={styles.qtyBtn}>
                   <MaterialIcons name={quantity === 1 ? 'delete-outline' : 'remove'} size={18} color={Colors.primary} />
                 </TouchableOpacity>
-                <Text style={styles.quantityText}>{quantity}</Text>
-                <TouchableOpacity onPress={() => updateQuantity(item.id, 1)} style={styles.quantityBtn}>
+                <Text style={styles.qtyText}>{quantity}</Text>
+                <TouchableOpacity onPress={() => updateQuantity(item.id, 1)} style={styles.qtyBtn}>
                   <MaterialIcons name="add" size={18} color={Colors.primary} />
                 </TouchableOpacity>
               </View>
@@ -158,11 +180,12 @@ export default function LogScreen() {
         </View>
       )}
 
-      {/* Count */}
-      {!isLoading && (
+      {/* Result count / hint */}
+      {!isLoading && !loadError && (
         <Text style={styles.countLabel}>
-          {filtered.length} {filtered.length === 1 ? 'item' : 'items'}
-          {selectedHall ? '' : ' across all halls'}
+          {isSearching
+            ? `${displayed.length} result${displayed.length === 1 ? '' : 's'}`
+            : `Showing ${Math.min(BROWSE_LIMIT, allFoodItems.length)} of ${allFoodItems.length} items — search to find any dish`}
         </Text>
       )}
     </View>
@@ -170,6 +193,7 @@ export default function LogScreen() {
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
+      {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Log Food</Text>
         {runningCalories > 0 && (
@@ -180,7 +204,7 @@ export default function LogScreen() {
       </View>
 
       <FlatList
-        data={filtered}
+        data={displayed}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
           <FoodCard
@@ -193,16 +217,23 @@ export default function LogScreen() {
         ListHeaderComponent={ListHeader}
         ListEmptyComponent={
           <View style={styles.empty}>
-            <MaterialIcons
-              name={isLoading ? 'hourglass-empty' : 'search-off'}
-              size={56}
-              color={Colors.surfaceContainerHigh}
-            />
-            <Text style={styles.emptyText}>
-              {isLoading ? 'Loading menu...' : 'No items found'}
-            </Text>
-            {!isLoading && (
-              <Text style={styles.emptyHint}>Try a different search or dining hall</Text>
+            {loadError ? (
+              <>
+                <MaterialIcons name="error-outline" size={48} color={Colors.primary} />
+                <Text style={styles.emptyText}>Could not load menu</Text>
+                <Text style={[styles.emptyHint, { color: Colors.primary }]}>{loadError}</Text>
+              </>
+            ) : isLoading ? (
+              <>
+                <MaterialIcons name="hourglass-empty" size={48} color={Colors.surfaceContainerHigh} />
+                <Text style={styles.emptyText}>Loading menu from Firestore…</Text>
+              </>
+            ) : (
+              <>
+                <MaterialIcons name="search-off" size={48} color={Colors.surfaceContainerHigh} />
+                <Text style={styles.emptyText}>No items found</Text>
+                <Text style={styles.emptyHint}>Try a different search or dining hall</Text>
+              </>
             )}
           </View>
         }
@@ -222,7 +253,7 @@ export default function LogScreen() {
         >
           <MaterialIcons name="check" size={20} color={Colors.onPrimary} />
           <Text style={styles.fabText}>
-            {isSaving ? 'Saving...' : `Log ${pendingEntries.length} ${pendingEntries.length === 1 ? 'item' : 'items'}`}
+            {isSaving ? 'Saving…' : `Log ${pendingEntries.length} item${pendingEntries.length === 1 ? '' : 's'}`}
           </Text>
         </TouchableOpacity>
       )}
@@ -241,22 +272,14 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     paddingTop: 8,
   },
-  headerTitle: {
-    fontFamily: FONTS.extraBold,
-    fontSize: 22,
-    color: Colors.onSurface,
-  },
+  headerTitle: { fontFamily: FONTS.extraBold, fontSize: 22, color: Colors.onSurface },
   calorieBadge: {
     backgroundColor: Colors.secondaryFixed,
     borderRadius: Radii.pill,
     paddingHorizontal: 14,
     paddingVertical: 6,
   },
-  calorieBadgeText: {
-    fontFamily: FONTS.extraBold,
-    fontSize: 12,
-    color: Colors.onSecondaryFixed,
-  },
+  calorieBadgeText: { fontFamily: FONTS.extraBold, fontSize: 12, color: Colors.onSecondaryFixed },
 
   listContent: { paddingHorizontal: Spacing.md, paddingBottom: 160 },
   listHeader: { gap: 12, marginBottom: 12 },
@@ -304,33 +327,13 @@ const styles = StyleSheet.create({
     padding: Spacing.md,
     gap: 10,
   },
-  pendingTitle: {
-    fontFamily: FONTS.extraBold,
-    fontSize: 14,
-    color: Colors.onSurface,
-  },
-  pendingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
+  pendingTitle: { fontFamily: FONTS.extraBold, fontSize: 14, color: Colors.onSurface },
+  pendingRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   pendingInfo: { flex: 1 },
-  pendingName: {
-    fontFamily: FONTS.bold,
-    fontSize: 13,
-    color: Colors.onSurface,
-  },
-  pendingMeta: {
-    fontFamily: FONTS.medium,
-    fontSize: 11,
-    color: Colors.onSurfaceVariant,
-  },
-  quantityControls: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  quantityBtn: {
+  pendingName: { fontFamily: FONTS.bold, fontSize: 13, color: Colors.onSurface },
+  pendingMeta: { fontFamily: FONTS.medium, fontSize: 11, color: Colors.onSurfaceVariant },
+  qtyRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  qtyBtn: {
     width: 30,
     height: 30,
     borderRadius: Radii.pill,
@@ -338,16 +341,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  quantityText: {
-    minWidth: 18,
-    textAlign: 'center',
-    fontFamily: FONTS.extraBold,
-    color: Colors.onSurface,
-  },
+  qtyText: { minWidth: 18, textAlign: 'center', fontFamily: FONTS.extraBold, color: Colors.onSurface },
 
-  empty: { alignItems: 'center', paddingVertical: 48, gap: 8 },
+  empty: { alignItems: 'center', paddingVertical: 48, gap: 10 },
   emptyText: { fontFamily: FONTS.bold, fontSize: 16, color: Colors.onSurfaceVariant },
-  emptyHint: { fontFamily: FONTS.medium, fontSize: 13, color: Colors.onSurfaceVariant },
+  emptyHint: {
+    fontFamily: FONTS.medium,
+    fontSize: 12,
+    color: Colors.onSurfaceVariant,
+    textAlign: 'center',
+    paddingHorizontal: 24,
+  },
 
   fab: {
     position: 'absolute',
@@ -365,10 +369,5 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 10,
   },
-  fabText: {
-    fontFamily: FONTS.extraBold,
-    fontSize: 14,
-    color: Colors.onPrimary,
-    letterSpacing: 0.3,
-  },
+  fabText: { fontFamily: FONTS.extraBold, fontSize: 14, color: Colors.onPrimary, letterSpacing: 0.3 },
 });

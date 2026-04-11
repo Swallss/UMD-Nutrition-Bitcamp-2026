@@ -44,23 +44,29 @@ export default function LoginScreen() {
   });
 
   // ── Core navigation after a successful Google sign-in ────────────────────────
-  // Always navigates forward, even if the Firestore profile write fails.
-  // Firebase Auth has already created/verified the user before this is called.
+  // signInWithPopup / signInWithCredential automatically creates a new Firebase
+  // Auth user on first sign-in. This additionally writes to Firestore `users`.
   const routeAfterGoogle = async (user: User) => {
     if (hasRouted.current) return;
     hasRouted.current = true;
 
-    let needsOnboarding = false;
+    let needsOnboarding = true; // safe default — show onboarding if unsure
     try {
-      // ensureUserProfile creates/updates the user doc in Firestore `users` collection.
-      // New Firebase Auth users are created automatically by signInWithPopup /
-      // signInWithCredential — no extra code needed for that.
       const result = await ensureUserProfile(user);
       needsOnboarding = result.needsOnboarding;
     } catch (err) {
-      // Firestore write failed (permissions not set up yet, or offline).
-      // Still navigate — profile will be lazily created on next successful write.
-      console.warn('[Login] ensureUserProfile failed, continuing anyway:', err);
+      // Firestore failed — most likely missing security rules.
+      // Detect new vs returning user via Firebase Auth metadata timestamps.
+      const created  = new Date(user.metadata.creationTime  ?? 0).getTime();
+      const lastSign = new Date(user.metadata.lastSignInTime ?? 0).getTime();
+      const isNew    = Math.abs(lastSign - created) < 10_000; // < 10 s apart = brand new
+      needsOnboarding = isNew;
+      console.warn(
+        '[Login] ensureUserProfile failed — Firestore security rules may be blocking writes.\n' +
+        'Add this rule in Firebase Console > Firestore > Rules:\n' +
+        '  match /users/{userId} { allow read, write: if request.auth != null && request.auth.uid == userId; }\n' +
+        'Error:', err,
+      );
     }
 
     router.replace((needsOnboarding ? '/(auth)/onboarding' : '/(tabs)') as any);
