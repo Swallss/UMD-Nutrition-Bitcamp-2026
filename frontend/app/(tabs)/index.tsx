@@ -1,5 +1,6 @@
 // Dashboard — daily calorie ring, macro bars, today's log, dining halls.
 import { useEffect, useState, useCallback } from 'react';
+import { useFocusEffect } from 'expo-router';
 import { Alert, ScrollView, View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, FONTS, Radii, Spacing } from '@/constants/Colors';
@@ -51,14 +52,30 @@ export default function DashboardScreen() {
   const displayName = profile?.displayName ?? 'Terp';
   const visibleLog = showAllLog ? todayLog : todayLog.slice(0, LOG_PREVIEW_COUNT);
 
+  const refreshDashboard = useCallback(async () => {
+    const user = auth.currentUser;
+    if (!user) return;
+    const [nextProfile, nextLog] = await Promise.all([
+      fetchUserProfile(user.uid),
+      fetchDailyLogs(user.uid),
+    ]);
+    setProfile(nextProfile);
+    setTodayLog(nextLog);
+  }, []);
+
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged((user) => {
       if (!user) return;
-      fetchUserProfile(user.uid).then(setProfile).catch(() => undefined);
-      fetchDailyLogs(user.uid).then(setTodayLog).catch(() => setTodayLog([]));
+      refreshDashboard().catch(() => setTodayLog([]));
     });
     return unsubscribe;
-  }, []);
+  }, [refreshDashboard]);
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshDashboard().catch(() => setTodayLog([]));
+    }, [refreshDashboard]),
+  );
 
   const handleRemoveLog = useCallback(async (entry: LogEntry | DailyLogEntry) => {
     const user = auth.currentUser;

@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { Colors, FONTS, Radii, Spacing } from '@/constants/Colors';
 import { FoodCard } from '@/components/FoodCard';
 import { DiningHallPicker } from '@/components/DiningHallPicker';
@@ -62,6 +62,16 @@ export default function LogScreen() {
     });
   }, [allFoodItems, query, selectedHall, isSearching]);
 
+  const refreshTodayLogs = useCallback(async () => {
+    const user = auth.currentUser;
+    if (!user) {
+      setTodayLogs([]);
+      return;
+    }
+    const nextLogs = await fetchDailyLogs(user.uid);
+    setTodayLogs(nextLogs);
+  }, []);
+
   useEffect(() => {
     setIsLoading(true);
     setLoadError(null);
@@ -81,10 +91,16 @@ export default function LogScreen() {
 
     const unsub = auth.onAuthStateChanged((user) => {
       if (!user) { setTodayLogs([]); return; }
-      fetchDailyLogs(user.uid).then(setTodayLogs).catch(() => setTodayLogs([]));
+      refreshTodayLogs().catch(() => setTodayLogs([]));
     });
     return unsub;
-  }, []);
+  }, [refreshTodayLogs]);
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshTodayLogs().catch(() => setTodayLogs([]));
+    }, [refreshTodayLogs]),
+  );
 
   const handleAdd = useCallback((item: FoodItem) => {
     setPendingItems((prev) => ({
@@ -120,6 +136,7 @@ export default function LogScreen() {
         pendingEntries.map((e) => addDailyLog(user.uid, e.item, e.quantity, mealTime)),
       );
       setPendingItems({});
+      await refreshTodayLogs();
       router.replace('/(tabs)');
     } catch (error) {
       Alert.alert('Could not save log', error instanceof Error ? error.message : 'Please try again.');
