@@ -131,10 +131,11 @@ export default function ProfileScreen() {
         setProfile(updatedProfile);
       } catch (error) {
         Alert.alert('Could not save profile', error instanceof Error ? error.message : 'Please try again.');
-        return;
       } finally {
         setIsSaving(false);
+        setIsEditing(false);
       }
+      return;
     }
 
     setIsEditing(false);

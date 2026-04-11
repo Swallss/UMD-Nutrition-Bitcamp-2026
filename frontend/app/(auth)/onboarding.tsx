@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   ScrollView,
@@ -143,6 +143,19 @@ function NumberField({
   value: number;
   onChange: (value: number) => void;
 }) {
+  // Keep a free-form string so the user can clear and retype freely.
+  // Only push a parsed number up when the input contains a valid positive integer.
+  const [text, setText] = useState(String(value));
+  const initialised = useRef(false);
+
+  // Sync when the parent value changes for the first time (profile loaded from Firestore).
+  useEffect(() => {
+    if (!initialised.current) {
+      initialised.current = true;
+      setText(String(value));
+    }
+  }, [value]);
+
   return (
     <View style={styles.field}>
       <Text style={styles.fieldLabel}>{label}</Text>
@@ -150,8 +163,12 @@ function NumberField({
         <TextInput
           style={styles.input}
           keyboardType="numeric"
-          value={String(value)}
-          onChangeText={(text) => onChange(parseInt(text, 10) || value)}
+          value={text}
+          onChangeText={(t) => {
+            setText(t);
+            const n = parseInt(t, 10);
+            if (!isNaN(n) && n > 0) onChange(n);
+          }}
         />
         <Text style={styles.suffix}>{suffix}</Text>
       </View>
