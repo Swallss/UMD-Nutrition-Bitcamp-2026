@@ -9,6 +9,7 @@ export default function TabLayout() {
     >
       <Tabs.Screen name="index" options={{ title: 'Home' }} />
       <Tabs.Screen name="log" options={{ title: 'Log' }} />
+      <Tabs.Screen name="photo" options={{ title: 'Photo' }} />
       <Tabs.Screen name="profile" options={{ title: 'Profile' }} />
       {/* search.tsx is kept on disk but not shown in tab bar */}
       <Tabs.Screen name="search" options={{ href: null }} />

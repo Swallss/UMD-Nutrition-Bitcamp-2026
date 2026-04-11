@@ -17,6 +17,7 @@ type TabConfig = {
 const TAB_CONFIG: TabConfig[] = [
   { routeName: 'index', label: 'HOME', icon: 'home' },
   { routeName: 'log', label: 'LOG', icon: 'add-circle' },
+  { routeName: 'photo', label: 'PHOTO', icon: 'photo-camera' },
   { routeName: 'profile', label: 'PROFILE', icon: 'person' },
 ];
 

@@ -1,5 +1,9 @@
 beautifulsoup4
+fastapi
 firebase-admin
+openai
 pandas
 python-dotenv
+python-multipart
 requests
+uvicorn

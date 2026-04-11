@@ -12,6 +12,8 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.umdnutrition.app",
       "infoPlist": {
+        "NSCameraUsageDescription": "Use the camera to log meal photos.",
+        "NSPhotoLibraryUsageDescription": "Choose meal photos from your photo library.",
         "CFBundleURLTypes": [
           {
             "CFBundleURLSchemes": [
@@ -39,6 +41,7 @@
     },
     "plugins": [
       "expo-router",
+      "expo-image-picker",
       "@react-native-google-signin/google-signin",
       [
         "expo-splash-screen",
