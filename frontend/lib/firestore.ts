@@ -147,9 +147,7 @@ export function mapItemDoc(id: string, data: Record<string, any>): FoodItem {
  *   }
  */
 export async function fetchFoodItems(): Promise<FoodItem[]> {
-  const snapshot = await getDocs(
-    query(collection(db, 'items'), orderBy('name'), limit(400)),
-  );
+  const snapshot = await getDocs(query(collection(db, 'items'), orderBy('name')));
   if (snapshot.empty) {
     console.warn('[Firestore] items collection is empty — has the scraper run yet?');
     return mockFoodItems;
