@@ -22,8 +22,12 @@ def _credential_path() -> str:
     return str(default_path)
 
 
-def get_db():
+def initialize_firebase():
     if not firebase_admin._apps:
         cred = credentials.Certificate(_credential_path())
         firebase_admin.initialize_app(cred)
+
+
+def get_db():
+    initialize_firebase()
     return firestore.client()
