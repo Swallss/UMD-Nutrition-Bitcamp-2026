@@ -33,10 +33,10 @@ LOCATIONS = {
 
 # Date range to scrape
 END_DATE   = date.today()
-START_DATE = END_DATE - timedelta(days=3)
+START_DATE = END_DATE - timedelta(days=14)
 
 # Rate limiting to be nice to UMD's website :)
-REQUEST_DELAY   = 0.4   # minimum seconds between requests
+REQUEST_DELAY   = 0.01   # minimum seconds between requests
 REQUEST_TIMEOUT = 20    # seconds before giving up on a single request
 
 # Networking
@@ -108,33 +108,30 @@ def get_menu_item_links(location_num, date_str):
 
 
 # Label Page Scraping
-
 def parse_quantity(raw):
     """
     Strip a unit suffix from a nutrition string and return a plain float.
-
     The label HTML encodes nutrients as combined name+value strings inside a
     single <span>, e.g. "Total Fat 10.5g" or "Sodium 307.7mg". After the
     caller splits off the nutrient name, this function receives just the
-    value portion ("10.5g") and converts it to a float (10.5).
-
-    We store floats rather than strings so the mobile app can do arithmetic —
-    multiplying by serving count, summing a day's intake, comparing to goals.
-
+    value portion ("10.5g") and converts it to a float (10.5), since floats are
+    easier to perform operations on.
     Returns None if the string is empty, whitespace-only, or non-numeric
-    (e.g. a blank % DV cell rendered as "&nbsp;"), so callers can safely
-    skip storing the field rather than writing a bad value.
+    (\xa0), so callers can safely skip storing the field rather than writing a bad value.
     """
+    # Empty case
     if not raw:
         return None
-    cleaned = raw.strip().lower().replace("\xa0", "")  # \xa0 is HTML &nbsp;
+    
+    cleaned = raw.strip().lower().replace("\xa0", "") 
     # Strip unit suffixes longest-first so "mcg" is matched before "g"
-    for suffix in ["mcg", "kcal", "mg", "cal", "g", "%"]:
+    for suffix in ["kcal", "mcg", "mg", "cal", "g", "%"]:
         if cleaned.endswith(suffix):
             cleaned = cleaned[: -len(suffix)].strip()
             break
     try:
         return float(cleaned)
+    # Special case: cleaning the suffixes results in something that cannot be casted to a float
     except ValueError:
         return None
 
@@ -142,17 +139,10 @@ def parse_quantity(raw):
 def parse_nutrient_span(span_text):
     """
     Split a combined "Name Value+unit" string into (name_key, float_value).
-
-    UMD's label page puts the nutrient name and its amount together inside a
-    single <span class="nutfactstopnutrient">, e.g.:
-        "Total Fat\xa010.5g"
-        "    Saturated Fat 4.1g"      (indented sub-nutrients use leading spaces)
-        "    Dietary Fiber 2g"
-
-    We strip leading whitespace (the indentation is cosmetic), then split on
-    the last space to separate the name from the value token. The name is
-    lowercased and used as a lookup key in NUTRIENT_MAP.
-
+    UMD's label page puts the nutrient name and its amount inside a single <span class="nutfactstopnutrient">, i.e.
+    "Total Fat\xa010.5g"
+    Strip leading whitespace, then split on the last space to separate the name from the value token. The name is
+    lowercased and used as a lookup key in NUTRIENT_MAP (maps to database entries).
     Returns (None, None) if the span doesn't contain a recognisable value.
     """
     text = span_text.strip().replace("\xa0", " ")
@@ -161,38 +151,32 @@ def parse_nutrient_span(span_text):
     parts = text.rsplit(" ", 1)
     if len(parts) != 2:
         return None, None
+    # remove lead+trailing whitespace
     name = parts[0].strip().lower()
     value = parse_quantity(parts[1].strip())
     return name, value
 
 
-def get_nutrition_label(item_name, rec_num):
+def get_nutrition_label(item_name, rec_num, loc_name):
     """
     Scrape the nutrition label page for a single food item and return a dict
     ready to be written to Firestore.
-    
     HTML structure:
-
     CALORIES live inside the first <td rowspan=10> of the facts table:
         <p>Calories per serving</p>
-        <p>251</p>
+        <p>XX</p>
     The calorie value is the text of the <p> that immediately follows the
-    "Calories per serving" paragraph — NOT in the main nutrient rows.
-
-    SERVING SIZE is also in that first <td>, in a <div class="nutfactsservsize">
-    that appears twice: once with the label "Serving size" and once with the
-    actual value (e.g. "1 ea"). We want the second one.
-
-    MAIN NUTRIENTS (fat, carbs, protein, sodium, etc.) are rendered as
+    "Calories per serving" paragraph
+    SERVING SIZE is also in the first <td>, in two <div class="nutfactsservsize">, of which
+    we care about the second.
+    MAIN NUTRIENTS (fat, carbs, protein, sodium) are rendered as
     <span class="nutfactstopnutrient"> elements whose text contains both the
-    nutrient name and its value in one string, e.g. "Total Fat 10.5g".
-    Sub-nutrients (saturated fat, dietary fiber, etc.) are indented with
-    leading &nbsp; characters but otherwise identical in structure.
-
-    % DAILY VALUES appear in the adjacent align="right" <td> cell as a
-    <span class="nutfactstopnutrient"><b>21%</b></span>. Blank % DV cells
-    contain "&nbsp;" which parse_quantity() will correctly return None for.
-
+    nutrient name and its value in one string ("Total Fat X.Xg")
+    Sub-nutrients (saturated fat, dietary fiber) are indented with
+    leading non breaking spaces, otherwise identical.
+    %DV appears in the adjacent align="right" <td> cell as a
+    <span class="nutfactstopnutrient"><b>XX%</b></span>. Blank % DV cells
+    contain &nbsp; which parse_quantity() will handle.
     Returns None if the network request fails.
     """
     url = f"{BASE_URL}/label.aspx?RecNumAndPort={rec_num}"
@@ -205,13 +189,14 @@ def get_nutrition_label(item_name, rec_num):
     nutrition = {
         "rec_num": rec_num,
         "name":    item_name,
+        "locations": [loc_name],
     }
 
     # Serving size
     # The first <td rowspan=10> contains two <div class="nutfactsservsize">:
     #   first:  "Serving size"
     #   second: "1 ea"          
-    # We grab both of them but take the last one.
+    # Grab both of them but take the last one.
     serv_divs = soup.find_all("div", class_="nutfactsservsize")
     if len(serv_divs) >= 2:
         nutrition["serving_size"] = serv_divs[-1].text.strip()
@@ -259,31 +244,28 @@ def get_nutrition_label(item_name, rec_num):
     # pairs), so a single <tr> can contain up to two nutrient+%DV pairs.
     # We iterate all <span class="nutfactstopnutrient"> elements directly rather
     # than going row-by-row, which handles both the paired layout and the
-    # micronutrient row (iron, calcium, etc.) that spans all columns.
+    # micronutrient row below that spans all columns.
     for span in soup.find_all("span", class_="nutfactstopnutrient"):
         name, value = parse_nutrient_span(span.get_text())
         if name is None or value is None:
             continue
-
+        # Make sure to only care about the nutrient specified in the database
         if name in NUTRIENT_MAP:
             field = NUTRIENT_MAP[name]
             nutrition[field] = value
 
             # The % DV for this nutrient is in the next right-aligned <td>'s
-            # <span>. We look for the immediately following span that contains
+            # <span>. Look for the immediately following span that contains
             # a "%" character. If it's blank (&nbsp;) parse_quantity returns
-            # None and we simply don't store a % DV for that nutrient.
+            # None; don't store a % DV for that nutrient.
             next_span = span.find_next("span", class_="nutfactstopnutrient")
             if next_span:
                 pct_text = next_span.get_text(strip=True).replace("\xa0", "")
                 if "%" in pct_text:
                     pct_field = field.rsplit("_", 1)[0] + "_pct_dv"
                     nutrition[pct_field] = parse_quantity(pct_text)
-
-    # ── Added sugars (special case) ───────────────────────────────────────────
-    # Added sugars appear in a <td align="left"> as plain text:
-    #   "      Includes 0g Added Sugars"
-    # This doesn't follow the span pattern, so we search for it separately.
+    # Special case: added sugars are held in a <td align="left"> as plain text.
+    # This doesn't follow the other span pattern so we search for it separately.
     for td in soup.find_all("td", align="left"):
         text = td.get_text(strip=True).lower()
         if "added sugars" in text and "includes" in text:
@@ -295,16 +277,13 @@ def get_nutrition_label(item_name, rec_num):
 
     return nutrition
 
-
 # Firestore Helpers
-
 def firestore_id(rec_num):
     """
     Sanitize a rec_num for use as a Firestore document ID;
     Firestore document IDs cannot contain forward slashes or asterisks.
     """
     return rec_num.replace("*", "_").replace("/", "-")
-
 
 def upload_item_if_new(rec_num, nutrition_data, item_cache):
     """
@@ -314,18 +293,29 @@ def upload_item_if_new(rec_num, nutrition_data, item_cache):
     Firestore read to check whether it already exists in the database from a previous run.
     This prevents overwriting preexisting data.
     """
-
     # Skips all items already seen this run
     if rec_num in item_cache:
         return
 
-    doc_ref = db.collection("items").document(firestore_id(rec_num))
+    # Search for duplate names in the existing items of the database
+    items_ref = db.collection("items")
+    exists = items_ref.where("name", "==", nutrition_data['name']).limit(1).get()
 
-    if not doc_ref.get().exists:
-        doc_ref.set(nutrition_data)
-        print(f"Uploaded: {nutrition_data['name']}")
+    if exists:
+        # Document exists, so append the new location if not listed already
+        doc = exists[0]
+        existing_locs = doc.to_dict().get("locations", [])
+        new_location = nutrition_data["locations"][0]
+        if new_location not in existing_locs:
+            doc.reference.update({
+                "locations": existing_locs + [new_location]
+            })
+            print(f"Added location {new_location} to: {nutrition_data['name']}")
+        else:
+            print(f"Exists:   {nutrition_data['name']}")
     else:
-        print(f"Exists:   {nutrition_data['name']}")
+        items_ref.document(firestore_id(rec_num)).set(nutrition_data)
+        print(f"Uploaded: {nutrition_data['name']}")  
 
     # Add to cache regardless of whether we wrote or not in order to speed up subsequent scrapes
     item_cache.add(rec_num)
@@ -333,12 +323,10 @@ def upload_item_if_new(rec_num, nutrition_data, item_cache):
 def scrape_day(date_str, item_cache):
     """
     Scrape all locations for a single date.
-
     For each location:
       1. Fetch the menu page to get the list of items being served
       2. For each item, fetch its nutrition label (only if not seen before)
       3. Upload the nutrition data to Firestore
-
     item_cache is passed in so it persists across days, preventing duplicates across the entire scrape run.
     """
     for loc_name, loc_num in LOCATIONS.items():
@@ -346,32 +334,27 @@ def scrape_day(date_str, item_cache):
         items = get_menu_item_links(loc_num, date_str)
 
         if not items:
-            # The dining hall may be closed on weekends, holidays, or
-            # between semesters — this is expected, not an error.
+            # The dining hall is closed for some reason; not an error
             print(f"no items; closed or no data for this location/day")
             continue
 
         for item_name, rec_num in items:
-
             # Only fetch the label page if this item is new to us.
-            # Items like "Scrambled Eggs" appear nearly every day —
-            # no need to re-scrape their nutrition facts each time.
+            # No need to scrape duplicates
             if rec_num not in item_cache:
-                nutrition = get_nutrition_label(item_name, rec_num)
+                nutrition = get_nutrition_label(item_name, rec_num, loc_name)
                 if nutrition:
                     upload_item_if_new(rec_num, nutrition, item_cache)
                 # Delay after each label fetch to avoid hammering the server
-                time.sleep(REQUEST_DELAY + random.uniform(0, 0.3))
+                time.sleep(REQUEST_DELAY + random.uniform(0, 0.2))
             else:
                 item_cache.add(rec_num)
 
 def run_full_scrape(start_date, end_date):
     """
     Performs a full scrape across a date range.
-
     Iterates day by day from start_date to end_date inclusive, scraping
     every location for each day.
-
     Progress is printed to the console for tracking and debugging.
     """
     # item_cache prevents repeat menu items from being added to the database.
@@ -393,7 +376,6 @@ def run_full_scrape(start_date, end_date):
 
         # Small pause between days 
         time.sleep(0.5)
-
 
     print(f"\n✓ Scrape complete.")
     print(f"  Unique items uploaded this run: {len(item_cache)}")
