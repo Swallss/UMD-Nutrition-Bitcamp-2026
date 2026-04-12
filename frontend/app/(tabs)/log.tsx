@@ -29,11 +29,80 @@ import { addDailyLog, fetchDailyLogs, fetchFoodItems, fetchItemRatings, setItemR
 // How many items to show when the user hasn't searched yet
 const BROWSE_PAGE_SIZE = 25;
 
+function RatedFoodCard({ 
+  item,
+  onAdd,
+  added 
+}: { 
+  item: FoodItem; 
+  onAdd: (item: FoodItem) => void; 
+  added: boolean; 
+}) {
+  const [avgRating, setAvgRating] = useState<number | undefined>(undefined);
+  const [userRatingLocal, setUserRatingLocal] = useState<number | undefined>(undefined);
+  const [authUid, setAuthUid] = useState<string | undefined>(auth.currentUser?.uid);
+
+  useEffect(() => {
+    const unsub = auth.onAuthStateChanged((user) => {
+      setAuthUid(user?.uid);
+    });
+    return unsub;
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    fetchItemRatings(item.id, authUid)
+      .then((r) => {
+        if (!mounted) return;
+        setAvgRating(r.avgRating ?? undefined);
+        setUserRatingLocal(r.userRating ?? undefined);
+      })
+      .catch((err) => {
+        console.error('[fetchItemRatings] error for item', item.id, err);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [item.id, authUid]);
+
+  const handleRate = async (r: number) => {
+    const user = auth.currentUser;
+    if (!user) {
+      Alert.alert('Sign in required', 'Please sign in to rate items.');
+      router.replace('/(auth)/login' as any);
+      return;
+    }
+    try {
+      // Optimistically update UI so taps feel responsive
+      setUserRatingLocal(r);
+      // Persist rating
+      await setItemRating(item.id, user.uid, r);
+      // refresh average after write
+      const res = await fetchItemRatings(item.id, user.uid);
+      setAvgRating(res.avgRating ?? undefined);
+    } catch (err) {
+      console.error('[RatedFoodCard] setItemRating', err);
+      Alert.alert('Cannot save rating', 'Please check your connection and try again.');
+    }
+  };
+
+  return (
+    <FoodCard
+      item={item}
+      mode="full"
+      onAdd={onAdd}
+      added={added}
+      userRating={userRatingLocal}
+      avgRating={avgRating}
+      onRate={handleRate}
+    />
+  );
+}
+
 export default function LogScreen() {
   const insets = useSafeAreaInsets();
   const [query, setQuery] = useState('');
   const [selectedHall, setSelectedHall] = useState<string | null>(null);
-  // All food items fetched from Firestore (kept in memory for instant search)
   const [allFoodItems, setAllFoodItems] = useState<FoodItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -47,7 +116,6 @@ export default function LogScreen() {
   const sessionCalories = pendingEntries.reduce((s, e) => s + e.item.calories * e.quantity, 0);
   const runningCalories = baseTotals.calories + sessionCalories;
 
-  // Items to display in the list
   const displayed = useMemo(() => {
     return allFoodItems.filter((item) => {
       const matchQuery = query.length === 0 || item.name.toLowerCase().includes(query.toLowerCase());
@@ -101,60 +169,6 @@ export default function LogScreen() {
     });
     return unsub;
   }, [refreshTodayLogs]);
-
-  function RatedFoodCard({ item }: { item: FoodItem }) {
-    const [avgRating, setAvgRating] = useState<number | undefined>(undefined);
-    const [userRatingLocal, setUserRatingLocal] = useState<number | undefined>(undefined);
-
-    useEffect(() => {
-      let mounted = true;
-      const user = auth.currentUser;
-      fetchItemRatings(item.id, user?.uid)
-        .then((r) => {
-          if (!mounted) return;
-          setAvgRating(r.avgRating ?? undefined);
-          setUserRatingLocal(r.userRating ?? undefined);
-        })
-        .catch(() => {
-          /* ignore */
-        });
-      return () => {
-        mounted = false;
-      };
-    }, [item.id]);
-
-    const handleRate = async (r: number) => {
-      const user = auth.currentUser;
-      if (!user) {
-        Alert.alert('Sign in required', 'Please sign in to rate items.');
-        router.replace('/(auth)/login' as any);
-        return;
-      }
-      try {
-        // Optimistically update UI so taps feel responsive
-        setUserRatingLocal(r);
-        // Persist rating
-        await setItemRating(item.id, user.uid, r);
-        // refresh average after write
-        const res = await fetchItemRatings(item.id, user.uid);
-        setAvgRating(res.avgRating ?? undefined);
-      } catch (err) {
-        console.error('[RatedFoodCard] setItemRating', err);
-      }
-    };
-
-    return (
-      <FoodCard
-        item={item}
-        mode="full"
-        onAdd={handleAdd}
-        added={Boolean(pendingItems[item.id])}
-        userRating={userRatingLocal}
-        avgRating={avgRating}
-        onRate={handleRate}
-      />
-    );
-  }
 
   useFocusEffect(
     useCallback(() => {
@@ -283,7 +297,11 @@ export default function LogScreen() {
         data={displayed}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
-          <RatedFoodCard item={item} />
+          <RatedFoodCard 
+            item={item} 
+            added={Boolean(pendingItems[item.id])}
+            onAdd={handleAdd} 
+          />
         )}
         ListHeaderComponent={ListHeader}
         ListEmptyComponent={

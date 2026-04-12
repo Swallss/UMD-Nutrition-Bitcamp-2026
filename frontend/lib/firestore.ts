@@ -413,7 +413,7 @@ export async function fetchItemRatings(itemId: string, userId?: string): Promise
       sum += r;
       count += 1;
     }
-    if (userId && data.userId === userId) userRating = r;
+    if (userId && (d.id === userId || data.userId === userId)) userRating = r;
   });
   const avgRating = count > 0 ? sum / count : 0;
   return { avgRating, userRating, count };
