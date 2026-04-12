@@ -4,7 +4,8 @@
       "Bash(find \"/c/Code/Neeks-Bitcamp-2026/frontend\" -type f \\\\\\( -name \"*.tsx\" -o -name \"*.ts\" -o -name \"*.json\" -o -name \"*.js\" \\\\\\) ! -path \"*/node_modules/*\" -exec wc -l {} +)",
       "Bash(npx tsc:*)",
       "Bash(node -e \"const p=require\\('./package.json'\\); const deps={...p.dependencies,...p.devDependencies}; ['@react-native-async-storage/async-storage','expo-auth-session','@react-native-google-signin/google-signin','firebase','expo'].forEach\\(k=>console.log\\(k+': '+\\(deps[k]||'NOT INSTALLED'\\)\\)\\)\")",
-      "Bash(node -e \"const p=require\\('./package.json'\\); const deps={...p.dependencies,...p.devDependencies}; console.log\\('expo-web-browser: '+\\(deps['expo-web-browser']||'NOT INSTALLED'\\)\\)\")"
+      "Bash(node -e \"const p=require\\('./package.json'\\); const deps={...p.dependencies,...p.devDependencies}; console.log\\('expo-web-browser: '+\\(deps['expo-web-browser']||'NOT INSTALLED'\\)\\)\")",
+      "Bash(ipconfig)"
     ]
   }
 }

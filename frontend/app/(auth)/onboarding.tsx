@@ -38,8 +38,8 @@ const ACTIVITY_OPTIONS: { value: ActivityLevel; label: string; description: stri
 ];
 
 const GOAL_OPTIONS: { value: GoalType; label: string; subtitle: string; detail: string; emoji: string }[] = [
-  { value: 'extreme_weight_loss',  label: 'Aggressive Cut',   emoji: '🔥', subtitle: 'Lose ~2 lbs/week',      detail: '~1000 cal/day deficit' },
-  { value: 'moderate_weight_loss', label: 'Steady Cut',       emoji: '📉', subtitle: 'Lose ~1 lb/week',       detail: '~500 cal/day deficit — sustainable long-term' },
+  { value: 'extreme_weight_loss',  label: 'Aggressive Cut',   emoji: '🔥', subtitle: 'Lose ~1 lb/week',       detail: '~500 cal/day deficit' },
+  { value: 'moderate_weight_loss', label: 'Steady Cut',       emoji: '📉', subtitle: 'Lose ~0.5 lb/week',     detail: '~250 cal/day deficit — sustainable long-term' },
   { value: 'maintain_weight',      label: 'Maintain',         emoji: '⚖️', subtitle: 'Keep current weight',   detail: 'Eat at your maintenance calories' },
   { value: 'moderate_weight_gain', label: 'Lean Bulk',        emoji: '📈', subtitle: 'Gain ~0.5 lb/week',     detail: '~300 cal/day surplus — minimize fat gain' },
   { value: 'extreme_weight_gain',  label: 'Aggressive Bulk',  emoji: '💥', subtitle: 'Gain ~1 lb/week',       detail: '~500 cal/day surplus — maximize muscle mass' },
