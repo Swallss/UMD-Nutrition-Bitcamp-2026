@@ -135,6 +135,106 @@ export const mockDiningHalls: DiningHall[] = [
 
 export const mockFoodItems: FoodItem[] = [];
 
+/**
+ * Returns an emoji that best represents a food item based on keywords in its name.
+ * Checks are ordered from most-specific to most-general so that e.g. "chicken
+ * salad" resolves to 🥗 (salad) rather than 🍗 (chicken).
+ */
+export function getFoodEmoji(name: string): string {
+  const n = name.toLowerCase();
+
+  // ── Specific dishes ──────────────────────────────────────────────────────────
+  if (/pizza/.test(n))                                          return '🍕';
+  if (/burger|hamburger/.test(n))                               return '🍔';
+  if (/hot.?dog/.test(n))                                       return '🌭';
+  if (/taco|burrito|quesadilla|nacho|fajita/.test(n))           return '🌮';
+  if (/sandwich|sub|hoagie|panini/.test(n))                     return '🥪';
+  if (/sushi|roll.*rice|onigiri/.test(n))                       return '🍣';
+  if (/dumpling|wonton|gyoza|potsticker/.test(n))               return '🥟';
+  if (/stir.?fry/.test(n))                                      return '🥘';
+
+  // ── Salad ─────────────────────────────────────────────────────────────────
+  if (/salad/.test(n))                                          return '🥗';
+
+  // ── Soup / stew ───────────────────────────────────────────────────────────
+  if (/soup|stew|chili|chowder|bisque|broth|gumbo/.test(n))    return '🍲';
+
+  // ── Desserts ──────────────────────────────────────────────────────────────
+  if (/ice.?cream|gelato|sorbet|sundae/.test(n))                return '🍦';
+  if (/cookie|brownie/.test(n))                                 return '🍪';
+  if (/cake|cupcake|cheesecake/.test(n))                        return '🍰';
+  if (/pie|cobbler|crisp|crumble/.test(n))                      return '🥧';
+  if (/donut|doughnut/.test(n))                                 return '🍩';
+  if (/pudding|custard|mousse|flan/.test(n))                    return '🍮';
+  if (/waffle/.test(n))                                         return '🧇';
+  if (/pancake/.test(n))                                        return '🥞';
+
+  // ── Breakfast items ───────────────────────────────────────────────────────
+  if (/french.?toast/.test(n))                                  return '🍞';
+  if (/egg|omelet|omelette|frittata|quiche|scrambled/.test(n)) return '🍳';
+  if (/oatmeal|granola|cereal/.test(n))                         return '🥣';
+
+  // ── Proteins ──────────────────────────────────────────────────────────────
+  if (/chicken|turkey|poultry|hen|wing/.test(n))                return '🍗';
+  if (/bacon/.test(n))                                          return '🥓';
+  if (/beef|steak|brisket|meatball|meatloaf|ground meat/.test(n)) return '🥩';
+  if (/pork|ham|sausage|chorizo|pepperoni|salami/.test(n))      return '🥩';
+  if (/salmon|tuna|tilapia|cod|mahi|shrimp|seafood|fish|crab|lobster/.test(n)) return '🐟';
+  if (/tofu|tempeh/.test(n))                                    return '🫘';
+
+  // ── Pasta / noodles ───────────────────────────────────────────────────────
+  if (/pasta|spaghetti|linguine|penne|fettuccine|rigatoni|lasagna|mac(aroni)?|noodle|ramen|lo.?mein|udon/.test(n)) return '🍝';
+
+  // ── Rice / grains ─────────────────────────────────────────────────────────
+  if (/\brice\b|quinoa|couscous|pilaf|risotto|fried rice/.test(n)) return '🍚';
+
+  // ── Vegetables ────────────────────────────────────────────────────────────
+  if (/broccoli/.test(n))                                       return '🥦';
+  if (/corn/.test(n))                                           return '🌽';
+  if (/carrot/.test(n))                                         return '🥕';
+  if (/potato|fries|tots|hash.?brown/.test(n))                  return '🥔';
+  if (/pepper/.test(n))                                         return '🫑';
+  if (/mushroom/.test(n))                                       return '🍄';
+  if (/tomato/.test(n))                                         return '🍅';
+  if (/avocado/.test(n))                                        return '🥑';
+  if (/spinach|kale|chard|collard|lettuce|arugula/.test(n))     return '🥬';
+  if (/vegetable|veggie|veg\b|stir.?veg|mixed veg/.test(n))     return '🥦';
+
+  // ── Legumes ───────────────────────────────────────────────────────────────
+  if (/bean|lentil|chickpea|hummus|falafel|edamame/.test(n))   return '🫘';
+
+  // ── Bread / bakery ────────────────────────────────────────────────────────
+  if (/muffin/.test(n))                                         return '🧁';
+  if (/bread|roll|biscuit|croissant|bagel|toast|pretzel|naan|pita|flatbread/.test(n)) return '🍞';
+
+  // ── Cheese / dairy ────────────────────────────────────────────────────────
+  if (/cheese|yogurt|cottage|ricotta|mozzarella|cheddar|parmesan/.test(n)) return '🧀';
+
+  // ── Fruit ─────────────────────────────────────────────────────────────────
+  if (/apple/.test(n))                                          return '🍎';
+  if (/banana/.test(n))                                         return '🍌';
+  if (/orange|citrus|mandarin/.test(n))                         return '🍊';
+  if (/grape/.test(n))                                          return '🍇';
+  if (/strawberr/.test(n))                                      return '🍓';
+  if (/berry|berries|blueberr|raspberr|blackberr/.test(n))      return '🫐';
+  if (/melon|watermelon|cantaloupe/.test(n))                    return '🍉';
+  if (/mango/.test(n))                                          return '🥭';
+  if (/pineapple/.test(n))                                      return '🍍';
+  if (/peach|plum|apricot/.test(n))                             return '🍑';
+  if (/pear/.test(n))                                           return '🍐';
+  if (/cherry|cherries/.test(n))                                return '🍒';
+  if (/fruit/.test(n))                                          return '🍎';
+
+  // ── Drinks ────────────────────────────────────────────────────────────────
+  if (/coffee|espresso|latte|cappuccino/.test(n))               return '☕';
+  if (/tea/.test(n))                                            return '🍵';
+  if (/juice|lemonade|smoothie/.test(n))                        return '🥤';
+  if (/milk/.test(n))                                           return '🥛';
+
+  // ── Fallback ──────────────────────────────────────────────────────────────
+  return '🍽️';
+}
+
 export function formatFoodName(name: string): string {
   return name
     .toLowerCase()

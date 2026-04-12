@@ -2,9 +2,9 @@
 // mode='full'    → hall + serving size context + add button
 // mode='compact' → macro numbers, star rating, trash button
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
+import { MaterialIcons } from '@expo/vector-icons'; // still used for star/add/remove icons
 import { Colors, FONTS, Radii } from '@/constants/Colors';
-import { formatFoodName, type FoodItem } from '@/lib/mockData';
+import { formatFoodName, getFoodEmoji, type FoodItem } from '@/lib/mockData';
 
 interface Props {
   item: FoodItem;
@@ -63,7 +63,9 @@ export function FoodCard({ item, mode = 'full', onAdd, onRemove, onRate, rating 
     <View style={[styles.card, isCompact && styles.cardCompact]}>
       {/* Thumbnail */}
       <View style={[styles.thumb, isCompact && styles.thumbCompact]}>
-        <MaterialIcons name="restaurant" size={isCompact ? 20 : 26} color={Colors.surfaceContainerHigh} />
+        <Text style={[styles.thumbEmoji, isCompact && styles.thumbEmojiCompact]}>
+          {getFoodEmoji(item.name)}
+        </Text>
       </View>
 
       {/* Info */}
@@ -166,6 +168,12 @@ const styles = StyleSheet.create({
   thumbCompact: {
     width: 44,
     height: 44,
+  },
+  thumbEmoji: {
+    fontSize: 28,
+  },
+  thumbEmojiCompact: {
+    fontSize: 22,
   },
 
   info: {
