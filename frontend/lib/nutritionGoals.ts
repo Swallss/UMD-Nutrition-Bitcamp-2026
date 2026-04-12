@@ -31,7 +31,12 @@ export function calculateNutritionGoals(profile: UserProfile): NutritionGoals {
   const sexAdjustment = profile.metrics.sex === 'female' ? -161 : 5;
   const bmr = 10 * weightKg + 6.25 * heightCm - 5 * age + sexAdjustment;
   const tdee = bmr * ACTIVITY_FACTORS[profile.metrics.activity_level];
-  const calorieGoal = Math.max(Math.round(tdee + GOAL_ADJUSTMENTS[profile.metrics.goal_type]), 1200);
+  const calculatedCalories = Math.max(Math.round(tdee + GOAL_ADJUSTMENTS[profile.metrics.goal_type]), 1200);
+
+  // Use manual override if set, otherwise fall back to the calculated value.
+  const override = profile.metrics.calorie_override;
+  const calorieGoal = override && override >= 1200 ? override : calculatedCalories;
+
   const proteinGoal = Math.round(weightLbs * 0.8);
   const fatGoal = Math.round((calorieGoal * 0.25) / 9);
   const carbGoal = Math.max(Math.round((calorieGoal - proteinGoal * 4 - fatGoal * 9) / 4), 0);

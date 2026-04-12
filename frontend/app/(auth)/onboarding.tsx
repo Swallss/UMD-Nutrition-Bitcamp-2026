@@ -1,15 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
+  Animated,
+  KeyboardAvoidingView,
+  LayoutChangeEvent,
   Platform,
   ScrollView,
-  View,
+  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  StyleSheet,
-  Animated,
-  useWindowDimensions,
+  View,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -21,78 +22,97 @@ import {
   saveUserProfile,
   type ActivityLevel,
   type GoalType,
-  type Sex,
   type UserProfile,
 } from '@/lib/firestore';
 
-const ACTIVITY_LABELS: Record<ActivityLevel, string> = {
-  low: 'Low',
-  light: 'Light',
-  moderate: 'Moderate',
-  high: 'High',
-  very_high: 'Very High',
-};
-const ACTIVITY_DESCRIPTIONS: Record<ActivityLevel, string> = {
-  low: 'Mostly sedentary: little to no structured exercise, desk job, minimal walking.',
-  light: 'Light activity: light exercise 1-2 days/week or regular walking.',
-  moderate: 'Moderately active: exercise 3-4 days/week or active daily routines.',
-  high: 'Highly active: intense exercise 5-6 days/week or a very active job.',
-  very_high: 'Very high activity: professional athlete level or very physical daily work.',
-};
-const GOAL_DESCRIPTIONS: Record<GoalType, string> = {
-  extreme_weight_loss: 'Aggressive plan aimed at rapid loss. Typically >1.0 lb/week — requires strict calorie deficit and monitoring.',
-  moderate_weight_loss: 'Steady weight loss plan. Around 0.5-1.0 lb/week with moderate calorie deficit and regular activity.',
-  maintain_weight: 'Maintain current weight — we will calculate calories to keep you stable.',
-  moderate_weight_gain: 'Controlled weight gain plan. Aim for gradual increase (~0.5 lb/week) with increased calories and strength training.',
-  extreme_weight_gain: 'Faster weight gain approach for significant mass increase; higher calorie surplus and training required.',
-};
-const GOAL_LABELS: Record<GoalType, string> = {
-  extreme_weight_loss: 'Extreme Weight Loss',
-  moderate_weight_loss: 'Moderate Weight Loss',
-  maintain_weight: 'Maintain Weight',
-  moderate_weight_gain: 'Moderate Weight Gain',
-  extreme_weight_gain: 'Extreme Weight Gain',
-};
-const SEX_LABELS: Record<Sex, string> = {
-  male: 'Male',
-  female: 'Female',
-  other: 'Other / Prefer not to say',
-};
+const STEP_COUNT = 4;
+
+// ── Option definitions ─────────────────────────────────────────────────────────
+
+const ACTIVITY_OPTIONS: { value: ActivityLevel; label: string; description: string; emoji: string }[] = [
+  { value: 'low',       label: 'Sedentary',         emoji: '🪑', description: 'Desk job, little to no exercise' },
+  { value: 'light',     label: 'Lightly Active',     emoji: '🚶', description: 'Light activity 1–3 days/week (walks, yoga)' },
+  { value: 'moderate',  label: 'Moderately Active',  emoji: '🏃', description: 'Exercise 3–5 days/week (gym, jogging)' },
+  { value: 'high',      label: 'Very Active',         emoji: '💪', description: 'Hard training 6–7 days/week' },
+  { value: 'very_high', label: 'Athlete',             emoji: '🏋️', description: 'Twice-daily training or physical labor' },
+];
+
+const GOAL_OPTIONS: { value: GoalType; label: string; subtitle: string; detail: string; emoji: string }[] = [
+  { value: 'extreme_weight_loss',  label: 'Aggressive Cut',   emoji: '🔥', subtitle: 'Lose ~2 lbs/week',      detail: '~1000 cal/day deficit' },
+  { value: 'moderate_weight_loss', label: 'Steady Cut',       emoji: '📉', subtitle: 'Lose ~1 lb/week',       detail: '~500 cal/day deficit — sustainable long-term' },
+  { value: 'maintain_weight',      label: 'Maintain',         emoji: '⚖️', subtitle: 'Keep current weight',   detail: 'Eat at your maintenance calories' },
+  { value: 'moderate_weight_gain', label: 'Lean Bulk',        emoji: '📈', subtitle: 'Gain ~0.5 lb/week',     detail: '~300 cal/day surplus — minimize fat gain' },
+  { value: 'extreme_weight_gain',  label: 'Aggressive Bulk',  emoji: '💥', subtitle: 'Gain ~1 lb/week',       detail: '~500 cal/day surplus — maximize muscle mass' },
+];
+
+const STEP_META = [
+  { title: 'Your stats',      subtitle: 'We use these to calculate your daily calorie and macro targets.' },
+  { title: 'Biological sex',  subtitle: 'This affects your basal metabolic rate calculation.' },
+  { title: 'Activity level',  subtitle: 'How active are you on a typical week?' },
+  { title: 'Your goal',       subtitle: 'What are you working toward?' },
+];
+
+// ── Main screen ────────────────────────────────────────────────────────────────
 
 export default function OnboardingScreen() {
   const insets = useSafeAreaInsets();
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [step, setStep] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
-  const [authChecked, setAuthChecked] = useState(false);
-  const { width } = useWindowDimensions();
-  const isMobile = width < 600;
-
-  const pageCount = 4; // metrics + sex + activity + goal
-  const scrollX = useRef(new Animated.Value(0)).current; // will be used as translateX
-  const [page, setPage] = useState(0);
+  const [panelWidth, setPanelWidth] = useState(0);
+  const panelWidthRef = useRef(0);
+  const slideAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     const user = auth.currentUser;
-    if (!user) {
-      router.replace('/(auth)/login' as any);
-      return;
-    }
+    if (!user) { router.replace('/(auth)/login' as any); return; }
+    const blankNumbers = (p: UserProfile): UserProfile => ({
+      ...p,
+      metrics: { ...p.metrics, height_in: 0, current_weight_lbs: 0, target_weight_lbs: 0, age: 0 },
+    });
     fetchUserProfile(user.uid)
-      .then(setProfile)
-      .catch(() => setProfile(getDefaultProfile(user)));
+      .then((p) => setProfile(blankNumbers(p)))
+      .catch(() => setProfile(blankNumbers(getDefaultProfile(user))));
   }, []);
 
   const updateMetric = <K extends keyof UserProfile['metrics']>(key: K, value: UserProfile['metrics'][K]) => {
-    setProfile((prev) => {
-      if (!prev) return prev;
-      return { ...prev, metrics: { ...prev.metrics, [key]: value } };
-    });
+    setProfile((prev) => prev ? { ...prev, metrics: { ...prev.metrics, [key]: value } } : prev);
   };
 
-  const handleContinue = async () => {
+  const handleSlideLayout = (e: LayoutChangeEvent) => {
+    const w = e.nativeEvent.layout.width;
+    if (w > 0 && w !== panelWidthRef.current) {
+      panelWidthRef.current = w;
+      setPanelWidth(w);
+      slideAnim.setValue(-step * w);
+    }
+  };
+
+  const navigateTo = (nextStep: number) => {
+    Animated.spring(slideAnim, {
+      toValue: -nextStep * panelWidthRef.current,
+      useNativeDriver: Platform.OS !== 'web',
+      tension: 68,
+      friction: 11,
+    }).start();
+    setStep(nextStep);
+  };
+
+  const handleNext = () => {
+    if (step === 0) {
+      const { height_in, current_weight_lbs, target_weight_lbs, age } = profile!.metrics;
+      if (!height_in || !current_weight_lbs || !target_weight_lbs || !age) {
+        Alert.alert('Missing info', 'Please fill in all fields before continuing.');
+        return;
+      }
+    }
+    if (step < STEP_COUNT - 1) { navigateTo(step + 1); return; }
+    handleSave();
+  };
+
+  const handleSave = async () => {
     const user = auth.currentUser;
     if (!user || !profile) return;
-
     try {
       setIsSaving(true);
       await saveUserProfile(user.uid, profile);
@@ -106,192 +126,188 @@ export default function OnboardingScreen() {
 
   if (!profile) {
     return (
-      <View style={{ flex: 1, backgroundColor: Colors.surface, alignItems: 'center', justifyContent: 'center' }}>
-        <Text style={{ fontFamily: FONTS.medium, color: Colors.onSurfaceVariant }}>Setting up your profile…</Text>
+      <View style={styles.loadingRoot}>
+        <Text style={styles.loadingText}>Setting up your profile…</Text>
       </View>
     );
   }
-
-  // Desktop / wide layout: keep original single-page ScrollView
-  if (!isMobile) {
-    return (
-      <ScrollView
-        style={styles.root}
-        contentContainerStyle={[styles.content, { paddingTop: insets.top + 40, paddingBottom: insets.bottom + 40 }]}
-      >
-        <Text style={styles.title}>Set your goals</Text>
-        <Text style={styles.subtitle}>A few details help us calculate your daily calories and macros.</Text>
-
-        <View style={styles.card}>
-          <NumberField
-            label="Height"
-            placeholder="e.g. 73"
-            suffix="in"
-            value={profile.metrics.height_in}
-            onChange={(value) => updateMetric('height_in', value)}
-          />
-          <NumberField
-            label="Current weight"
-            placeholder="e.g. 210"
-            suffix="lbs"
-            value={profile.metrics.current_weight_lbs}
-            onChange={(value) => updateMetric('current_weight_lbs', value)}
-          />
-          <NumberField
-            label="Target weight"
-            placeholder="e.g. 180"
-            suffix="lbs"
-            value={profile.metrics.target_weight_lbs}
-            onChange={(value) => updateMetric('target_weight_lbs', value)}
-          />
-          <NumberField
-            label="Age"
-            placeholder="e.g. 20"
-            suffix="yrs"
-            value={profile.metrics.age}
-            onChange={(value) => updateMetric('age', value)}
-          />
-
-          <SelectorRow label="Sex" options={Object.keys(SEX_LABELS) as Sex[]} labels={SEX_LABELS} value={profile.metrics.sex} onSelect={(value) => updateMetric('sex', value)} />
-          <SelectorRow label="Activity" options={Object.keys(ACTIVITY_LABELS) as ActivityLevel[]} labels={ACTIVITY_LABELS} value={profile.metrics.activity_level} onSelect={(value) => updateMetric('activity_level', value)} />
-          <Text style={styles.activityDescription}>{ACTIVITY_DESCRIPTIONS[profile.metrics.activity_level ?? 'moderate']}</Text>
-          <SelectorRow label="Goal" options={Object.keys(GOAL_LABELS) as GoalType[]} labels={GOAL_LABELS} value={profile.metrics.goal_type} onSelect={(value) => updateMetric('goal_type', value)} />
-          <Text style={styles.activityDescription}>{GOAL_DESCRIPTIONS[profile.metrics.goal_type ?? 'maintain_weight']}</Text>
-        </View>
-
-        <TouchableOpacity style={styles.cta} onPress={handleContinue} disabled={isSaving}>
-          <Text style={styles.ctaText}>{isSaving ? 'Saving...' : 'Continue'}</Text>
-        </TouchableOpacity>
-      </ScrollView>
-    );
-  }
-
-  // Mobile: split into multiple pages; navigation controlled by Continue button
-  const pageWidth = width - Spacing.lg * 2; // content padding is applied by container
-
-  const translateX = scrollX.interpolate({ inputRange: [0, pageWidth * (pageCount - 1)], outputRange: [0, -pageWidth * (pageCount - 1)], extrapolate: 'clamp' });
-
-  const goToPage = (next: number) => {
-    const toValue = next * pageWidth * -1;
-    Animated.timing(scrollX, { toValue, duration: 350, useNativeDriver: false }).start();
-    setPage(next);
-  };
-
-  const onPressContinue = () => {
-    if (page < pageCount - 1) {
-      goToPage(page + 1);
-      return;
-    }
-    handleContinue();
-  };
 
   return (
-    <View style={[styles.root, { paddingTop: insets.top + 40, paddingBottom: insets.bottom + 40 }]}>
-      <View style={[styles.content, { paddingHorizontal: Spacing.lg }] as any}>
-        <Text style={styles.title}>Set your goals</Text>
-        <Text style={styles.subtitle}>A few details help us calculate your daily calories and macros.</Text>
+    <KeyboardAvoidingView
+      style={styles.root}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
+      {/* Progress dots */}
+      <View style={[styles.progressRow, { paddingTop: insets.top + 16 }]}>
+        {Array.from({ length: STEP_COUNT }).map((_, i) => (
+          <Animated.View
+            key={i}
+            style={[
+              styles.dot,
+              i === step && styles.dotActive,
+              i < step && styles.dotDone,
+            ]}
+          />
+        ))}
+      </View>
 
-        <View style={{ overflow: 'hidden' }}>
-          <Animated.View style={{ flexDirection: 'row', width: pageWidth * pageCount, transform: [{ translateX: scrollX }] }}>
-            <View style={[styles.card, { width: pageWidth }]}>
-              <NumberField
-                label="Height"
-                placeholder="e.g. 73"
-                suffix="in"
-                value={profile.metrics.height_in}
-                onChange={(value) => updateMetric('height_in', value)}
-              />
-              <NumberField
-                label="Current weight"
-                placeholder="e.g. 210"
-                suffix="lbs"
-                value={profile.metrics.current_weight_lbs}
-                onChange={(value) => updateMetric('current_weight_lbs', value)}
-              />
-              <NumberField
-                label="Target weight"
-                placeholder="e.g. 180"
-                suffix="lbs"
-                value={profile.metrics.target_weight_lbs}
-                onChange={(value) => updateMetric('target_weight_lbs', value)}
-              />
-              <NumberField
-                label="Age"
-                placeholder="e.g. 20"
-                suffix="yrs"
-                value={profile.metrics.age}
-                onChange={(value) => updateMetric('age', value)}
-              />
+      {/* Step title */}
+      <View style={styles.titleBlock}>
+        <Text style={styles.title}>{STEP_META[step].title}</Text>
+        <Text style={styles.subtitle}>{STEP_META[step].subtitle}</Text>
+      </View>
+
+      {/* Sliding panels */}
+      <View style={styles.slideWindow} onLayout={handleSlideLayout}>
+        <Animated.View
+          style={[styles.slideRow, { width: panelWidth * STEP_COUNT, transform: [{ translateX: slideAnim }] }]}
+        >
+          {/* ── Step 0: Numbers ─────────────────────────────────────────────── */}
+          <ScrollView
+            style={[styles.panel, { width: panelWidth }]}
+            contentContainerStyle={styles.panelContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <NumberField label="Height" placeholder="e.g. 73" suffix="in"
+              value={profile.metrics.height_in}
+              onChange={(v) => updateMetric('height_in', v)} />
+            <NumberField label="Current weight" placeholder="e.g. 185" suffix="lbs"
+              value={profile.metrics.current_weight_lbs}
+              onChange={(v) => updateMetric('current_weight_lbs', v)} />
+            <NumberField label="Target weight" placeholder="e.g. 165" suffix="lbs"
+              value={profile.metrics.target_weight_lbs}
+              onChange={(v) => updateMetric('target_weight_lbs', v)} />
+            <NumberField label="Age" placeholder="e.g. 20" suffix="yrs"
+              value={profile.metrics.age}
+              onChange={(v) => updateMetric('age', v)} />
+          </ScrollView>
+
+          {/* ── Step 1: Sex ──────────────────────────────────────────────────── */}
+          <View style={[styles.panel, { width: panelWidth }]}>
+            <View style={styles.sexRow}>
+              {(['male', 'female'] as const).map((sex) => {
+                const active = profile.metrics.sex === sex;
+                return (
+                  <TouchableOpacity
+                    key={sex}
+                    style={[styles.sexCard, active && styles.sexCardActive]}
+                    onPress={() => updateMetric('sex', sex)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.sexEmoji}>{sex === 'male' ? '♂' : '♀'}</Text>
+                    <Text style={[styles.sexLabel, active && styles.sexLabelActive]}>
+                      {sex === 'male' ? 'Male' : 'Female'}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
+          </View>
 
-            <View style={[styles.card, { width: pageWidth }]}>
-              <Text style={[styles.fieldLabel, { marginBottom: 8 }]}>Sex</Text>
-              <Text style={[styles.subtitle, { marginBottom: 12 }]}>Used to estimate body composition and calorie needs. Choose the option that best describes you.</Text>
-              <SelectorRow label="" options={Object.keys(SEX_LABELS) as Sex[]} labels={SEX_LABELS} value={profile.metrics.sex} onSelect={(value) => updateMetric('sex', value)} />
-            </View>
+          {/* ── Step 2: Activity ─────────────────────────────────────────────── */}
+          <ScrollView
+            style={[styles.panel, { width: panelWidth }]}
+            contentContainerStyle={styles.panelContent}
+            showsVerticalScrollIndicator={false}
+          >
+            {ACTIVITY_OPTIONS.map((opt) => {
+              const active = profile.metrics.activity_level === opt.value;
+              return (
+                <TouchableOpacity
+                  key={opt.value}
+                  style={[styles.optionCard, active && styles.optionCardActive]}
+                  onPress={() => updateMetric('activity_level', opt.value)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.optionEmoji}>{opt.emoji}</Text>
+                  <View style={styles.optionText}>
+                    <Text style={[styles.optionLabel, active && styles.optionLabelActive]}>
+                      {opt.label}
+                    </Text>
+                    <Text style={[styles.optionDesc, active && styles.optionDescActive]}>
+                      {opt.description}
+                    </Text>
+                  </View>
+                  {active && <View style={styles.activeCheck}><Text style={styles.checkMark}>✓</Text></View>}
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
 
-            <View style={[styles.card, { width: pageWidth }]}>
-              <Text style={[styles.fieldLabel, { marginBottom: 8 }]}>Activity</Text>
-              <Text style={[styles.subtitle, { marginBottom: 12 }]}>How active you are on a typical day. Pick the level that most closely matches your weekly routine.</Text>
-              <SelectorRow label="" options={Object.keys(ACTIVITY_LABELS) as ActivityLevel[]} labels={ACTIVITY_LABELS} value={profile.metrics.activity_level} onSelect={(value) => updateMetric('activity_level', value)} />
-              <Text style={styles.activityDescription}>{ACTIVITY_DESCRIPTIONS[profile.metrics.activity_level ?? 'moderate']}</Text>
-            </View>
+          {/* ── Step 3: Goal ─────────────────────────────────────────────────── */}
+          <ScrollView
+            style={[styles.panel, { width: panelWidth }]}
+            contentContainerStyle={styles.panelContent}
+            showsVerticalScrollIndicator={false}
+          >
+            {GOAL_OPTIONS.map((opt) => {
+              const active = profile.metrics.goal_type === opt.value;
+              return (
+                <TouchableOpacity
+                  key={opt.value}
+                  style={[styles.optionCard, active && styles.optionCardActive]}
+                  onPress={() => updateMetric('goal_type', opt.value)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.optionEmoji}>{opt.emoji}</Text>
+                  <View style={styles.optionText}>
+                    <Text style={[styles.optionLabel, active && styles.optionLabelActive]}>
+                      {opt.label}
+                    </Text>
+                    <Text style={[styles.optionDesc, active && styles.optionDescActive]}>
+                      {opt.subtitle}
+                    </Text>
+                    <Text style={[styles.optionDetail, active && styles.optionDetailActive]}>
+                      {opt.detail}
+                    </Text>
+                  </View>
+                  {active && <View style={styles.activeCheck}><Text style={styles.checkMark}>✓</Text></View>}
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </Animated.View>
+      </View>
 
-            <View style={[styles.card, { width: pageWidth }]}>
-              <Text style={[styles.fieldLabel, { marginBottom: 8 }]}>Goal</Text>
-              <Text style={[styles.subtitle, { marginBottom: 12 }]}>Your primary goal for the app — weight loss, maintenance, or gain. Tap a choice to learn more and select it.</Text>
-              <SelectorRow label="" options={Object.keys(GOAL_LABELS) as GoalType[]} labels={GOAL_LABELS} value={profile.metrics.goal_type} onSelect={(value) => updateMetric('goal_type', value)} />
-              <Text style={styles.activityDescription}>{GOAL_DESCRIPTIONS[profile.metrics.goal_type ?? 'maintain_weight']}</Text>
-            </View>
-          </Animated.View>
-        </View>
-
-        {/* Page indicator */}
-        <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 8, marginTop: 12 }}>
-          {Array.from({ length: pageCount }).map((_, i) => {
-            const inputRange = [ -pageWidth * (i + 1), -pageWidth * i, -pageWidth * (i - 1) ];
-            const dotScale = scrollX.interpolate({ inputRange, outputRange: [1, 1.6, 1], extrapolate: 'clamp' });
-            const opacity = scrollX.interpolate({ inputRange, outputRange: [0.5, 1, 0.5], extrapolate: 'clamp' });
-            return (
-              <Animated.View key={i} style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.onSurface, transform: [{ scale: dotScale }], opacity }} />
-            );
-          })}
-        </View>
-
-        <TouchableOpacity style={[styles.cta, { marginTop: Spacing.lg }]} onPress={onPressContinue} disabled={isSaving}>
-          <Text style={styles.ctaText}>{isSaving ? 'Saving...' : page < pageCount - 1 ? 'Continue' : 'Finish'}</Text>
+      {/* Nav buttons */}
+      <View style={[styles.navRow, { paddingBottom: insets.bottom + 24 }]}>
+        <TouchableOpacity
+          style={[styles.backBtn, step === 0 && styles.backBtnHidden]}
+          onPress={() => navigateTo(step - 1)}
+          activeOpacity={0.8}
+          disabled={step === 0}
+        >
+          <Text style={styles.backBtnText}>← Back</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.nextBtn, isSaving && styles.nextBtnDisabled]}
+          onPress={handleNext}
+          disabled={isSaving}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.nextBtnText}>
+            {isSaving ? 'Saving…' : step === STEP_COUNT - 1 ? "Let's go 🎉" : 'Next →'}
+          </Text>
         </TouchableOpacity>
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
+// ── NumberField ────────────────────────────────────────────────────────────────
+
 function NumberField({
-  label,
-  placeholder,
-  suffix,
-  value,
-  onChange,
-}: {
-  label: string;
-  placeholder: string;
-  suffix: string;
-  value: number;
-  onChange: (value: number) => void;
-}) {
-  // Keep a free-form string so the user can clear and retype freely.
-  // Only push a parsed number up when the input contains a valid positive integer.
-  const [text, setText] = useState('');
+  label, placeholder, suffix, value, onChange,
+}: { label: string; placeholder: string; suffix: string; value: number; onChange: (v: number) => void }) {
+  const [text, setText] = useState(value > 0 ? String(value) : '');
   const initialised = useRef(false);
 
-  // Do not pre-fill inputs on first render; keep them empty so the user types their value.
   useEffect(() => {
-    if (!initialised.current) {
+    if (!initialised.current && value > 0) {
       initialised.current = true;
-      return;
+      setText(String(value));
     }
-    // If parent value changes after initial render (e.g., reset), reflect it.
-    setText(String(value));
   }, [value]);
 
   return (
@@ -299,13 +315,10 @@ function NumberField({
       <Text style={styles.fieldLabel}>{label}</Text>
       <View style={styles.inputRow}>
         <TextInput
-          style={[
-            styles.input,
-            Platform.OS === 'web' && ({ outlineStyle: 'none' } as never),
-          ]}
+          style={[styles.input, Platform.OS === 'web' && ({ outlineStyle: 'none' } as never)]}
           keyboardType="numeric"
           placeholder={placeholder}
-          placeholderTextColor={`${Colors.onSurfaceVariant}88`}
+          placeholderTextColor={`${Colors.onSurfaceVariant}66`}
           selectionColor={Colors.primary}
           value={text}
           onChangeText={(t) => {
@@ -320,62 +333,68 @@ function NumberField({
   );
 }
 
-function SelectorRow<T extends string>({
-  label,
-  options,
-  labels,
-  value,
-  onSelect,
-}: {
-  label: string;
-  options: T[];
-  labels: Record<T, string>;
-  value: T;
-  onSelect: (value: T) => void;
-}) {
-  return (
-    <View style={styles.selectorGroup}>
-      <Text style={styles.fieldLabel}>{label}</Text>
-      <View style={styles.selectorRow}>
-        {options.map((option) => {
-          const active = option === value;
-          return (
-            <TouchableOpacity key={option} onPress={() => onSelect(option)} style={[styles.chip, active && styles.chipActive]}>
-              <Text style={[styles.chipText, active && styles.chipTextActive]}>{labels[option]}</Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-    </View>
-  );
-}
+// ── Styles ─────────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.surface },
-  content: { paddingHorizontal: Spacing.lg, gap: Spacing.lg },
+  loadingRoot: { flex: 1, backgroundColor: Colors.surface, alignItems: 'center', justifyContent: 'center' },
+  loadingText: { fontFamily: FONTS.medium, color: Colors.onSurfaceVariant },
+
+  // Progress
+  progressRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+    paddingBottom: 8,
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: Colors.surfaceContainerHigh,
+  },
+  dotActive: {
+    width: 28,
+    borderRadius: 4,
+    backgroundColor: Colors.primary,
+  },
+  dotDone: {
+    backgroundColor: `${Colors.primary}55`,
+  },
+
+  // Title block
+  titleBlock: {
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.md,
+    paddingBottom: Spacing.sm,
+    gap: 6,
+  },
   title: {
     fontFamily: FONTS.extraBold,
-    fontSize: 34,
+    fontSize: 30,
     color: Colors.onSurface,
+    letterSpacing: -0.5,
   },
   subtitle: {
     fontFamily: FONTS.medium,
-    fontSize: 15,
+    fontSize: 14,
     color: Colors.onSurfaceVariant,
-    lineHeight: 22,
+    lineHeight: 20,
   },
-  card: {
-    backgroundColor: Colors.surfaceContainerLowest,
-    borderRadius: Radii.card,
-    padding: Spacing.lg,
-    gap: Spacing.md,
+
+  // Sliding panels
+  slideWindow: { flex: 1, overflow: 'hidden' },
+  slideRow: {
+    flexDirection: 'row',
+    flex: 1,
   },
-  field: { gap: 8 },
-  fieldLabel: {
-    fontFamily: FONTS.extraBold,
-    fontSize: 13,
-    color: Colors.onSurface,
-  },
+  panel: { flex: 1 },
+  panelContent: { paddingHorizontal: Spacing.lg, paddingTop: Spacing.sm, paddingBottom: 16, gap: Spacing.md },
+
+  // Number fields
+  field: { gap: 6 },
+  fieldLabel: { fontFamily: FONTS.extraBold, fontSize: 13, color: Colors.onSurface },
   inputRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -383,57 +402,106 @@ const styles = StyleSheet.create({
     borderColor: Colors.primary,
     borderRadius: Radii.innerCard,
     borderWidth: 1.5,
-    paddingHorizontal: 14,
+    paddingHorizontal: 16,
   },
   input: {
     flex: 1,
     fontFamily: FONTS.extraBold,
-    fontSize: 16,
+    fontSize: 17,
     color: Colors.onSurface,
-    paddingVertical: 10,
+    paddingVertical: 12,
   },
-  suffix: {
-    fontFamily: FONTS.bold,
-    fontSize: 13,
-    color: Colors.onSurfaceVariant,
+  suffix: { fontFamily: FONTS.bold, fontSize: 13, color: Colors.onSurfaceVariant },
+
+  // Sex cards
+  sexRow: {
+    flexDirection: 'row',
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.md,
+    gap: Spacing.md,
   },
-  selectorGroup: { gap: 8 },
-  selectorRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginHorizontal: -6 },
-  chip: {
-    backgroundColor: Colors.surfaceContainerHigh,
-    borderRadius: Radii.chip,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginHorizontal: 6,
-    marginBottom: 8,
-    minWidth: 140,
+  sexCard: {
+    flex: 1,
+    aspectRatio: 1,
+    borderRadius: Radii.card,
+    backgroundColor: Colors.surfaceContainerLowest,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 12,
+    borderWidth: 2,
+    borderColor: 'transparent',
   },
-  chipActive: { backgroundColor: Colors.secondaryFixed },
-  chipText: {
-    fontFamily: FONTS.bold,
-    fontSize: 12,
-    color: Colors.onSurfaceVariant,
-    textAlign: 'center',
+  sexCardActive: {
+    borderColor: Colors.primary,
+    backgroundColor: `${Colors.primary}0d`,
   },
-  chipTextActive: { color: Colors.onSecondaryFixed },
-  activityDescription: {
-    fontFamily: FONTS.medium,
-    fontSize: 13,
-    color: Colors.onSurfaceVariant,
-    marginTop: 8,
-    lineHeight: 18,
+  sexEmoji: { fontSize: 52 },
+  sexLabel: { fontFamily: FONTS.extraBold, fontSize: 18, color: Colors.onSurfaceVariant },
+  sexLabelActive: { color: Colors.primary },
+
+  // Option cards (activity + goal)
+  optionCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.surfaceContainerLowest,
+    borderRadius: Radii.innerCard,
+    padding: 14,
+    gap: 12,
+    borderWidth: 2,
+    borderColor: 'transparent',
   },
-  cta: {
+  optionCardActive: {
+    borderColor: Colors.primary,
+    backgroundColor: `${Colors.primary}0d`,
+  },
+  optionEmoji: { fontSize: 28, width: 36, textAlign: 'center' },
+  optionText: { flex: 1, gap: 2 },
+  optionLabel: { fontFamily: FONTS.extraBold, fontSize: 14, color: Colors.onSurface },
+  optionLabelActive: { color: Colors.primary },
+  optionDesc: { fontFamily: FONTS.medium, fontSize: 12, color: Colors.onSurfaceVariant },
+  optionDescActive: { color: `${Colors.primary}cc` },
+  optionDetail: { fontFamily: FONTS.medium, fontSize: 11, color: Colors.onSurfaceVariant, marginTop: 2 },
+  optionDetailActive: { color: `${Colors.primary}99` },
+  activeCheck: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     backgroundColor: Colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  checkMark: { color: Colors.onPrimary, fontSize: 13, fontFamily: FONTS.extraBold },
+
+  // Nav buttons
+  navRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.md,
+    gap: Spacing.md,
+  },
+  backBtnHidden: { opacity: 0 },
+  backBtn: {
+    flex: 1,
+    paddingVertical: 15,
     borderRadius: Radii.pill,
-    paddingVertical: 16,
+    backgroundColor: Colors.surfaceContainerLow,
     alignItems: 'center',
   },
-  ctaText: {
-    fontFamily: FONTS.extraBold,
-    fontSize: 15,
-    color: Colors.onPrimary,
+  backBtnText: { fontFamily: FONTS.extraBold, fontSize: 14, color: Colors.onSurfaceVariant },
+  nextBtn: {
+    flex: 2,
+    paddingVertical: 15,
+    borderRadius: Radii.pill,
+    backgroundColor: Colors.primary,
+    alignItems: 'center',
+    shadowColor: Colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 6,
   },
+  nextBtnDisabled: { opacity: 0.6 },
+  nextBtnText: { fontFamily: FONTS.extraBold, fontSize: 15, color: Colors.onPrimary },
 });

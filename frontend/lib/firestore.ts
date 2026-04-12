@@ -32,6 +32,7 @@ export interface UserProfile {
   metrics: {
     activity_level: ActivityLevel;
     age: number;
+    calorie_override?: number;
     current_weight_lbs: number;
     goal_type: GoalType;
     height_in: number;
@@ -108,6 +109,7 @@ function normalizeProfile(
     metrics: {
       activity_level:      m.activity_level      ?? DEFAULT_METRICS.activity_level,
       age:                 m.age                 ?? DEFAULT_METRICS.age,
+      ...(m.calorie_override && m.calorie_override > 0 ? { calorie_override: m.calorie_override } : {}),
       current_weight_lbs:  m.current_weight_lbs  ?? DEFAULT_METRICS.current_weight_lbs,
       goal_type:           goalType,
       height_in:           m.height_in           ?? DEFAULT_METRICS.height_in,

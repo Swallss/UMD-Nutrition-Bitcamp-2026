@@ -175,6 +175,7 @@ export default function ProfileScreen() {
         current_weight_lbs: String(profile.metrics.current_weight_lbs),
         target_weight_lbs:  String(profile.metrics.target_weight_lbs),
         age:                String(profile.metrics.age),
+        calorie_override:   profile.metrics.calorie_override ? String(profile.metrics.calorie_override) : '',
       });
       setIsEditing(true);
       return;
@@ -193,6 +194,8 @@ export default function ProfileScreen() {
         const n = parseInt(draftValues[key] ?? '', 10);
         return isNaN(n) || n <= 0 ? fallback : n;
       };
+      const rawOverride = parseInt(draftValues.calorie_override ?? '', 10);
+      const calorieOverride = !isNaN(rawOverride) && rawOverride >= 1200 ? rawOverride : undefined;
       const updatedProfile: UserProfile = {
         ...profile,
         metrics: {
@@ -201,6 +204,7 @@ export default function ProfileScreen() {
           current_weight_lbs: parse('current_weight_lbs', profile.metrics.current_weight_lbs),
           target_weight_lbs:  parse('target_weight_lbs',  profile.metrics.target_weight_lbs),
           age:                parse('age',                profile.metrics.age),
+          calorie_override:   calorieOverride,
         },
       };
       try {
@@ -324,8 +328,32 @@ export default function ProfileScreen() {
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Nutrition Goals</Text>
         <View style={styles.goalRow}>
-          <Text style={styles.goalLabel}>Daily Calories</Text>
-          <Text style={styles.goalValue}>{goals.calorieGoal} kcal</Text>
+          <View style={{ gap: 2 }}>
+            <Text style={styles.goalLabel}>Daily Calories</Text>
+            {isEditing && (
+              <Text style={styles.overrideHint}>Leave blank to auto-calculate</Text>
+            )}
+          </View>
+          {isEditing ? (
+            <TextInput
+              style={[styles.calorieInput, Platform.OS === 'web' && ({ outlineStyle: 'none' } as never)]}
+              value={draftValues.calorie_override ?? ''}
+              onChangeText={(v) => setDraftValues((d) => ({ ...d, calorie_override: v }))}
+              keyboardType="numeric"
+              placeholder={String(goals.calorieGoal)}
+              placeholderTextColor={`${Colors.onSurfaceVariant}66`}
+              selectionColor={Colors.primary}
+            />
+          ) : (
+            <View style={styles.goalValueRow}>
+              <Text style={styles.goalValue}>{goals.calorieGoal} kcal</Text>
+              {profile.metrics.calorie_override ? (
+                <View style={styles.customBadge}>
+                  <Text style={styles.customBadgeText}>custom</Text>
+                </View>
+              ) : null}
+            </View>
+          )}
         </View>
         <View style={styles.macrosSection}>
           <MacroBar label="Protein" consumed={totals.protein} goal={goals.proteinGoal} color={Colors.primary} />
@@ -651,6 +679,28 @@ const styles = StyleSheet.create({
   },
   goalLabel: { fontFamily: FONTS.semiBold, fontSize: 14, color: Colors.onSurface },
   goalValue: { fontFamily: FONTS.extraBold, fontSize: 14, color: Colors.primary },
+  goalValueRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  overrideHint: { fontFamily: FONTS.medium, fontSize: 11, color: Colors.onSurfaceVariant },
+  calorieInput: {
+    fontFamily: FONTS.extraBold,
+    fontSize: 14,
+    color: Colors.onSurface,
+    backgroundColor: Colors.surfaceContainerLowest,
+    borderColor: Colors.primary,
+    borderRadius: Radii.innerCard,
+    borderWidth: 1.5,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    minWidth: 100,
+    textAlign: 'right',
+  },
+  customBadge: {
+    backgroundColor: `${Colors.primary}18`,
+    borderRadius: Radii.chip,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  customBadgeText: { fontFamily: FONTS.bold, fontSize: 11, color: Colors.primary },
   macrosSection: { gap: 0 },
   chartCard: {
     backgroundColor: Colors.secondaryFixed,
