@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getAuth, initializeAuth, type Auth } from 'firebase/auth';
+import { getAuth, initializeAuth, getReactNativePersistence, type Auth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { Platform } from 'react-native';
 
@@ -15,40 +15,14 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 
-const asyncStoragePersistence = {
-  type: 'LOCAL',
-  async _isAvailable() {
-    const testKey = 'firebase-auth-storage-test';
-    try {
-      await AsyncStorage.setItem(testKey, '1');
-      await AsyncStorage.removeItem(testKey);
-      return true;
-    } catch {
-      return false;
-    }
-  },
-  async _set(key: string, value: unknown) {
-    await AsyncStorage.setItem(key, JSON.stringify(value));
-  },
-  async _get<T>(key: string) {
-    const value = await AsyncStorage.getItem(key);
-    return value ? (JSON.parse(value) as T) : null;
-  },
-  async _remove(key: string) {
-    await AsyncStorage.removeItem(key);
-  },
-  _addListener() {},
-  _removeListener() {},
-};
-
 const createAuth = (): Auth => {
   if (Platform.OS === 'web') return getAuth(app);
-
   try {
     return initializeAuth(app, {
-      persistence: asyncStoragePersistence as never,
+      persistence: getReactNativePersistence(AsyncStorage),
     });
   } catch {
+    // initializeAuth throws if called more than once (e.g. hot reload) — fall back to getAuth.
     return getAuth(app);
   }
 };

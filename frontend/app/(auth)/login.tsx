@@ -17,33 +17,28 @@ import {
   signInWithPopup,
   type User,
 } from 'firebase/auth';
+import * as Google from 'expo-auth-session/providers/google';
+import * as WebBrowser from 'expo-web-browser';
 import { Colors, FONTS, Radii } from '@/constants/Colors';
 import { auth } from '@/lib/firebase';
 import { ensureUserProfile } from '@/lib/firestore';
 
-// Lazy-load the native Google Sign-In library so it is never required on web
-// (the module contains native code that doesn't exist in the web bundle).
-let _GoogleSignin: typeof import('@react-native-google-signin/google-signin').GoogleSignin | null = null;
-let _statusCodes: typeof import('@react-native-google-signin/google-signin').statusCodes | null = null;
-
-if (Platform.OS !== 'web') {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const gs = require('@react-native-google-signin/google-signin');
-  _GoogleSignin = gs.GoogleSignin;
-  _statusCodes  = gs.statusCodes;
-  _GoogleSignin!.configure({
-    iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
-    webClientId:
-      process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ??
-      '263060087857-menbal4r8rv9t5hdpfks3fj3k0rsb5p9.apps.googleusercontent.com',
-  });
-}
+// Required for expo-auth-session to close the browser tab after redirect on native.
+WebBrowser.maybeCompleteAuthSession();
 
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
   const [isSigningIn, setIsSigningIn] = useState(false);
   // Prevent double-navigation (onAuthStateChanged + sign-in handler can both fire).
   const hasRouted = useRef(false);
+
+  // expo-auth-session Google provider — routes through auth.expo.io proxy so
+  // Google sees a valid https:// redirect URI regardless of network/IP.
+  const [request, response, promptAsync] = Google.useAuthRequest({
+    iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
+    webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
+    redirectUri: 'https://auth.expo.io/@eabou/umd-nutrition',
+  });
 
   // ── Core navigation after a successful Google sign-in ────────────────────────
   const routeAfterGoogle = async (user: User) => {
@@ -83,6 +78,31 @@ export default function LoginScreen() {
     };
   }, []);
 
+  // ── Handle expo-auth-session response (native) ────────────────────────────────
+  useEffect(() => {
+    if (response?.type === 'success') {
+      const accessToken = response.authentication?.accessToken;
+      if (!accessToken) {
+        Alert.alert('Sign-in failed', 'No access token returned. Please try again.');
+        setIsSigningIn(false);
+        return;
+      }
+      const credential = GoogleAuthProvider.credential(null, accessToken);
+      signInWithCredential(auth, credential)
+        .then(({ user }) => routeAfterGoogle(user))
+        .catch((error) => {
+          Alert.alert('Sign-in failed', error instanceof Error ? error.message : 'Please try again.');
+          hasRouted.current = false;
+          setIsSigningIn(false);
+        });
+    } else if (response?.type === 'error') {
+      Alert.alert('Sign-in failed', response.error?.message ?? 'Please try again.');
+      setIsSigningIn(false);
+    } else if (response?.type === 'dismiss' || response?.type === 'cancel') {
+      setIsSigningIn(false);
+    }
+  }, [response]);
+
   // ── Button handler ────────────────────────────────────────────────────────────
   const handleSignIn = async () => {
     if (Platform.OS === 'web') {
@@ -105,25 +125,10 @@ export default function LoginScreen() {
       return;
     }
 
-    // Native (iOS / Android) — @react-native-google-signin/google-signin
-    if (!_GoogleSignin) {
-      Alert.alert('Not ready', 'Google sign-in is still initialising. Please try again.');
-      return;
-    }
-    try {
-      setIsSigningIn(true);
-      await _GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: false });
-      const { data } = await _GoogleSignin.signIn();
-      const credential = GoogleAuthProvider.credential(data?.idToken ?? null);
-      const { user } = await signInWithCredential(auth, credential);
-      await routeAfterGoogle(user);
-    } catch (error: any) {
-      if (error?.code !== _statusCodes?.SIGN_IN_CANCELLED) {
-        Alert.alert('Sign-in failed', error instanceof Error ? error.message : 'Please try again.');
-      }
-      hasRouted.current = false;
-      setIsSigningIn(false);
-    }
+    // Native (iOS/Android) — expo-auth-session opens a browser tab, no native module needed.
+    setIsSigningIn(true);
+    await promptAsync();
+    // Result is handled in the useEffect above watching `response`.
   };
 
   // ── UI ────────────────────────────────────────────────────────────────────────
