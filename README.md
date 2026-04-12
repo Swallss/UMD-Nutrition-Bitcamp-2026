@@ -138,51 +138,46 @@ The second rule is required because Firestore rules do not automatically apply t
 
 ## Getting Started
 
+You need two terminals running at the same time — one for the backend, one for the frontend.
+
 ### Prerequisites
 
 - Node.js + npm
 - Python 3.10+
-- Expo CLI (`npm install -g expo-cli`)
-- Firebase project with Firestore + Auth enabled
-- Railway account for backend deployment
+- An [OpenAI API key](https://platform.openai.com/api-keys) (for photo estimation — requires billing credits)
 
 ### Backend Setup
 
-```bash
-cd backend
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-```
+1. Create `backend/.env`:
+   ```
+   OPENAI_API_KEY=sk-...your key here...
+   ```
 
-Add a `.env` file in `/backend`:
+2. Install dependencies and start the server:
+   ```bash
+   cd backend
+   pip install -r requirements.txt
+   python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+   ```
 
-```
-FIREBASE_CREDENTIALS=path/to/serviceAccountKey.json
-```
-
-Run the server:
-
-```bash
-uvicorn main:app --reload
-```
+The API will be running at `http://localhost:8000`.
 
 ### Frontend Setup
 
-```bash
-cd frontend
-npm install
-npx expo start
-```
+1. Create or update `frontend/.env`:
+   ```
+   EXPO_PUBLIC_API_URL=http://localhost:8000
+   ```
+   > **On a physical device:** replace `localhost` with your machine's local IP address (e.g. `http://192.168.1.42:8000`). Run `ipconfig` (Windows) or `ipconfig getifaddr en0` (Mac) to find it. Both your device and computer must be on the same WiFi network.
 
-Add a `.env` file in `/frontend`:
-
-```
-EXPO_PUBLIC_API_URL=http://localhost:8000
-EXPO_PUBLIC_FIREBASE_API_KEY=...
-EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN=...
-EXPO_PUBLIC_FIREBASE_PROJECT_ID=...
-```
+2. Install dependencies and start Expo:
+   ```bash
+   cd frontend
+   npm install
+   npx expo start
+   ```
+   - Press `w` to open in the browser
+   - Scan the QR code with the Expo Go app to run on your phone
 
 ### Running the Scraper Manually
 

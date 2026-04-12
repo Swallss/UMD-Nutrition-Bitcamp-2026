@@ -72,24 +72,6 @@ export default function PhotoScreen() {
     }
   }, []);
 
-  const takePhoto = useCallback(async () => {
-    const permission = await ImagePicker.requestCameraPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert('Camera permission needed', 'Please allow camera access to take a meal photo.');
-      return;
-    }
-    const result = await ImagePicker.launchCameraAsync({
-      quality: 0.8,
-      allowsEditing: false,
-    });
-    if (!result.canceled) {
-      setImageUri(result.assets[0]?.uri ?? null);
-      setEstimates({});
-      setOverallConfidence(null);
-      setWarnings([]);
-    }
-  }, []);
-
   const addSelectedItem = useCallback((item: FoodItem) => {
     setSelectedItems((current) => ({ ...current, [item.id]: item }));
     setQuery('');
@@ -201,18 +183,14 @@ export default function PhotoScreen() {
           <Image source={{ uri: imageUri }} style={styles.mealImage} contentFit="cover" />
         ) : (
           <View style={styles.photoEmpty}>
-            <MaterialIcons name="photo-camera" size={42} color={Colors.surfaceContainerHigh} />
+            <MaterialIcons name="photo-library" size={42} color={Colors.surfaceContainerHigh} />
             <Text style={styles.photoEmptyText}>Add a meal photo</Text>
           </View>
         )}
         <View style={styles.photoActions}>
-          <TouchableOpacity style={styles.actionButton} onPress={takePhoto} activeOpacity={0.85}>
-            <MaterialIcons name="photo-camera" size={18} color={Colors.onPrimary} />
-            <Text style={styles.actionButtonText}>Camera</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.secondaryButton} onPress={pickImage} activeOpacity={0.85}>
-            <MaterialIcons name="photo-library" size={18} color={Colors.primary} />
-            <Text style={styles.secondaryButtonText}>Gallery</Text>
+          <TouchableOpacity style={styles.actionButton} onPress={pickImage} activeOpacity={0.85}>
+            <MaterialIcons name="photo-library" size={18} color={Colors.onPrimary} />
+            <Text style={styles.actionButtonText}>Choose from Gallery</Text>
           </TouchableOpacity>
         </View>
       </View>
