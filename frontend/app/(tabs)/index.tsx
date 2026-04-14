@@ -16,6 +16,7 @@ import { calculateNutritionGoals } from '@/lib/nutritionGoals';
 import {
   fetchDailyLogs,
   fetchDiningHallTraffic,
+  fetchItemRatings,
   fetchUserProfile,
   removeDailyLog,
   updateLogRating,
@@ -147,6 +148,54 @@ function BusyHistogram({
     </View>
   );
 }
+function LogFoodCard({
+  entry,
+  onRemove,
+}: {
+  entry: LogEntry | DailyLogEntry;
+  onRemove: (entry: LogEntry | DailyLogEntry) => void;
+}) {
+  const [avgRating, setAvgRating] = useState<number | undefined>(undefined);
+  const [userRating, setUserRating] = useState<number | undefined>(undefined);
+
+  useEffect(() => {
+    let mounted = true;
+    const uid = auth.currentUser?.uid;
+    fetchItemRatings(entry.foodItemId, uid)
+      .then((r) => {
+        if (!mounted) return;
+        setAvgRating(r.avgRating ?? undefined);
+        setUserRating(r.userRating ?? undefined);
+      })
+      .catch(() => {});
+    return () => {
+      mounted = false;
+    };
+  }, [entry.foodItemId]);
+
+  const item = {
+    id: entry.foodItemId,
+    name: entry.foodName,
+    calories: entry.calories,
+    protein: entry.protein,
+    carbs: entry.carbs,
+    fat: entry.fat,
+    diningHallId: '',
+    mealTime: entry.mealTime,
+    dietaryTag: null,
+    station: '',
+  } as any;
+
+  return (
+    <FoodCard
+      item={item}
+      mode="compact"
+      userRating={userRating}
+      avgRating={avgRating}
+      onRemove={() => onRemove(entry)}
+    />
+  );
+}
 
 export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
@@ -204,18 +253,7 @@ export default function DashboardScreen() {
     }
   }, []);
 
-  const handleRate = useCallback(async (entry: LogEntry | DailyLogEntry, rating: number) => {
-    const user = auth.currentUser;
-    if (!user) return;
-    try {
-      await updateLogRating(user.uid, entry.id, rating);
-      setTodayLog((prev) =>
-        prev.map((e) => (e.id === entry.id ? { ...e, rating } : e)),
-      );
-    } catch {
-      // Silently fail for ratings
-    }
-  }, []);
+
 
   const handleSignOut = useCallback(async () => {
     try {
@@ -295,31 +333,13 @@ export default function DashboardScreen() {
           <Text style={styles.emptyLog}>No items logged today. Tap Log to add food!</Text>
         ) : (
           <View style={styles.logList}>
-            {visibleLog.map((entry) => {
-              const item = {
-                id: entry.foodItemId,
-                name: entry.foodName,
-                calories: entry.calories,
-                protein: entry.protein,
-                carbs: entry.carbs,
-                fat: entry.fat,
-                diningHallId: '',
-                mealTime: entry.mealTime,
-                dietaryTag: null,
-                station: '',
-              } as const;
-              const logRating = (entry as DailyLogEntry).rating ?? 0;
-              return (
-                <FoodCard
-                  key={entry.id}
-                  item={item}
-                  mode="compact"
-                  rating={logRating}
-                  onRate={(r) => handleRate(entry, r)}
-                  onRemove={() => handleRemoveLog(entry)}
-                />
-              );
-            })}
+            {visibleLog.map((entry) => (
+              <LogFoodCard
+                key={entry.id}
+                entry={entry}
+                onRemove={handleRemoveLog}
+              />
+            ))}
           </View>
         )}
       </View>
