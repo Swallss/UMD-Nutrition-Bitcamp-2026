@@ -1,4 +1,10 @@
-// Dashboard — daily calorie ring, macro bars, today's log, dining halls.
+// Dashboard: daily calorie ring, macro bars, today's log, dining halls.
+
+// useEffect - runs side effects after component renders
+// useState - flag value that trigger component re-renders when changed
+// useCallback - "memorized" function to keep it as the same object between re-renders
+// useFocusEffect - like useEffect but for switching between pages instead of screen mounts
+// (useful for tab naviagtion where the screen doesn't unmount)
 import { useEffect, useState, useCallback } from 'react';
 import { useFocusEffect } from 'expo-router';
 import { Alert, ScrollView, View, Text, TouchableOpacity, StyleSheet, useWindowDimensions } from 'react-native';
@@ -6,12 +12,15 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { signOut } from 'firebase/auth';
 import { Colors, FONTS, Radii, Spacing } from '@/constants/Colors';
+// Components of each page for the app to use
 import { MacroRing } from '@/components/MacroRing';
 import { MacroBar } from '@/components/MacroBar';
 import { FoodCard } from '@/components/FoodCard';
 import { HeroPattern } from '@/components/HeroPattern';
+// Early mock data repurposed for real data :) naming conventions suck here
 import { mockDiningHalls, getTodayTotals, type LogEntry } from '@/lib/mockData';
 import { auth } from '@/lib/firebase';
+// Algorithm for determining calorie goal
 import { calculateNutritionGoals } from '@/lib/nutritionGoals';
 import {
   fetchDailyLogs,
@@ -33,6 +42,8 @@ const BUSY_HISTOGRAMS: Record<string, number[]> = {
   'south-campus': [4, 3, 3, 3, 4, 9, 31, 48, 38, 30, 52, 82, 88, 67, 41, 38, 56, 80, 74, 58, 30, 14, 8, 5],
   '251-north': [3, 3, 2, 2, 3, 7, 20, 32, 29, 24, 41, 68, 76, 60, 44, 40, 52, 73, 70, 50, 24, 10, 6, 4],
 };
+
+// HELPER FUNCTIONS
 
 function getGreeting() {
   const h = new Date().getHours();
@@ -197,37 +208,65 @@ function LogFoodCard({
   );
 }
 
+// "Main" function for the dashboard
 export default function DashboardScreen() {
+  // Page formatting
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
+
+  // State declarations:
+  // profile: user's firestore document (null until fetched later)
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  // todayLog: array of food entries logged today: can hold mock data (we should
+  // really get rid of this) or real firestore entries
   const [todayLog, setTodayLog] = useState<(LogEntry | DailyLogEntry)[]>([]);
+  // showAllLog: boolean toggle for listing more/less in log section of dashboard
   const [showAllLog, setShowAllLog] = useState(false);
+  // trafficByHall: hourly hall traffic data (hall ID is the key)
   const [trafficByHall, setTrafficByHall] = useState<DiningHallTraffic>({});
 
+  // Derived values:
+  // getTodayTotals: sums up macros across all log entries
   const totals = getTodayTotals(todayLog);
+  // calculateNutritionGoals: runs algorithm to get user's calorie goals, with a fallback option included
   const goals = profile
     ? calculateNutritionGoals(profile)
     : { calorieGoal: 2000, proteinGoal: 150, carbGoal: 250, fatGoal: 65 };
 
+  // Use "terp" as the fallback display name if not logged in
   const displayName = profile?.displayName ?? 'Terp';
+  // Decide how much of today's log to show; 3 if collapsed
   const visibleLog = showAllLog ? todayLog : todayLog.slice(0, LOG_PREVIEW_COUNT);
+  
+  // Formatting (why is this different from above?)
   const isPhoneLayout = width < 700;
   const hallCardWidth = isPhoneLayout ? '100%' : width >= 900 ? '32.5%' : '48.5%';
 
+  // refreshDashboard: main way of fetching data from firestore/firebase!!
+  // note use of useCallback: the function reference doesn't change across renders,
+  // which is necessary since it's used as a dependency in the effects below
+  // (prevents unnecessary useEffect runs)
   const refreshDashboard = useCallback(async () => {
+    // synchronous property on the Firebase auth instance that returns current user or null
     const user = auth.currentUser;
+    // make sure to exit if not logged in
     if (!user) return;
+    // Promise.all : fires all firestore requests simultaneously, then stores returns
+    // of each call in the respective order in the array constant.
     const [nextProfile, nextLog, nextTraffic] = await Promise.all([
       fetchUserProfile(user.uid),
       fetchDailyLogs(user.uid),
+      // the catch call just makes sure that we don't completely crumble if
+      // the dining hall hourly data can't be fetched: we just use default values instead
       fetchDiningHallTraffic().catch(() => ({})),
     ]);
+    // Set up the user's profile, today's log, and the daily hall traffic graph
     setProfile(nextProfile);
     setTodayLog(nextLog);
     setTrafficByHall(nextTraffic);
   }, []);
 
+  // Setup firebase auth listener (same as in _layout.tsx). 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged((user) => {
       if (!user) return;
@@ -236,7 +275,9 @@ export default function DashboardScreen() {
     return unsubscribe;
   }, [refreshDashboard]);
 
+  // useFocusEffect is used as a wrapper to prevent infinite loops
   useFocusEffect(
+    // Fires every time the home tab comes into focus.
     useCallback(() => {
       refreshDashboard().catch(() => setTodayLog([]));
     }, [refreshDashboard]),

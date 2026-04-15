@@ -67,7 +67,7 @@ export default function RootLayout() {
   }, [fontsLoaded]);
 
   // On native: keep splash visible while fonts + auth are resolving.
-  // On web: never return null — the browser has no splash screen, so null = blank page.
+  // On web: never return null, the browser has no splash screen, so null = blank page
   // Instead, render the Stack immediately and overlay a loader until ready.
   if (!fontsLoaded) return null;
 
@@ -100,6 +100,7 @@ export default function RootLayout() {
 }
 
 // Spinny loading screen styling
+// Basically like CSS classes but applied directly to components
 const styles = StyleSheet.create({
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,
