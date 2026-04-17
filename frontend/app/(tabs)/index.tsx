@@ -22,6 +22,7 @@ import { mockDiningHalls, getTodayTotals, type LogEntry } from '@/lib/mockData';
 import { auth } from '@/lib/firebase';
 // Algorithm for determining calorie goal
 import { calculateNutritionGoals } from '@/lib/nutritionGoals';
+// Firestore helpers to get/set/delete values from the database
 import {
   fetchDailyLogs,
   fetchDiningHallTraffic,
@@ -37,6 +38,7 @@ import {
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const LOG_PREVIEW_COUNT = 3;
 const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
+// Daily trafic graph values
 const BUSY_HISTOGRAMS: Record<string, number[]> = {
   yahentamitsi: [5, 4, 3, 3, 4, 8, 28, 42, 35, 28, 45, 76, 84, 62, 39, 34, 48, 70, 78, 54, 28, 12, 8, 6],
   'south-campus': [4, 3, 3, 3, 4, 9, 31, 48, 38, 30, 52, 82, 88, 67, 41, 38, 56, 80, 74, 58, 30, 14, 8, 5],
@@ -45,6 +47,7 @@ const BUSY_HISTOGRAMS: Record<string, number[]> = {
 
 // HELPER FUNCTIONS
 
+// Determine greeting on the top of the dashboard
 function getGreeting() {
   const h = new Date().getHours();
   if (h < 12) return 'Good morning';
@@ -52,6 +55,7 @@ function getGreeting() {
   return 'Good evening';
 }
 
+// Formatting for date display on top of dashboard
 function formatDate() {
   return new Date().toLocaleDateString('en-US', {
     weekday: 'long',
@@ -60,8 +64,10 @@ function formatDate() {
   });
 }
 
+// Return total minutes passed in the day so far
 function minutesFromTime(time?: string) {
   if (!time) return null;
+  // match the time string to the specific format of (1 or 2 digits for the hour: 2 digits for the minute AM or PM)
   const match = time.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
   if (!match) return null;
   const [, hourRaw, minuteRaw, periodRaw] = match;
@@ -70,23 +76,28 @@ function minutesFromTime(time?: string) {
   const period = periodRaw.toUpperCase();
   if (period === 'PM' && hour !== 12) hour += 12;
   if (period === 'AM' && hour === 12) hour = 0;
+  // Return total minutes passed in the day so far
   return hour * 60 + minute;
 }
 
+// Figure out if the dining halls are open now based on the current minutes passed in the day so far
 function isOpenNow(opening?: string, closing?: string) {
   const open = minutesFromTime(opening);
   const close = minutesFromTime(closing);
   if (open === null || close === null) return true;
+  // Gets the current date and time rn
   const now = new Date();
   const current = now.getHours() * 60 + now.getMinutes();
   return current >= open && current < close;
 }
 
+//  returns an array that maps hours of the day to the values in the values parameter
 function getHourlyTraffic(values: number[]) {
   if (values.length >= 24) return values.slice(0, 24);
   return HOURS.map((_, index) => values[index % Math.max(values.length, 1)] ?? 0);
 }
 
+// returns an array of the open hours of the dining hall (to display on the histogram on dashbaord)
 function getOpenHours(opening?: string, closing?: string) {
   const open = minutesFromTime(opening);
   const close = minutesFromTime(closing);
@@ -104,12 +115,14 @@ function getOpenHours(opening?: string, closing?: string) {
   return Array.from({ length: closeHour - openHour }, (_, index) => openHour + index);
 }
 
+// Get the closing hour of a dining hall based on an input string
 function getClosingHour(closing?: string) {
   const close = minutesFromTime(closing);
   if (close === null) return 23;
   return Math.ceil(close / 60) % 24;
 }
 
+// Time formatting for AM/PM
 function formatHourLabel(hour: number) {
   if (hour === 0) return '12a';
   if (hour === 12) return '12p';
@@ -117,6 +130,7 @@ function formatHourLabel(hour: number) {
   return `${hour - 12}p`;
 }
 
+// Put all the helpers together to create the histogram components to display on the dashboard
 function BusyHistogram({
   values,
   opening,
@@ -128,12 +142,15 @@ function BusyHistogram({
   closing?: string;
   compact?: boolean;
 }) {
+  // All the helpers get the relevant formatting data for the histogram
   const hourly = getHourlyTraffic(values);
   const openHours = getOpenHours(opening, closing);
   const currentHour = new Date().getHours();
   const bars = openHours.map((hour) => ({ hour, value: hourly[hour] ?? 0 }));
   const closingHour = getClosingHour(closing);
   const max = Math.max(...bars.map((bar) => bar.value), 1);
+
+  // Actual formatting of the histogram
   return (
     <View>
       <View style={[styles.histogram, compact && styles.histogramCompact]}>
@@ -159,6 +176,8 @@ function BusyHistogram({
     </View>
   );
 }
+
+// Component for a single food item card
 function LogFoodCard({
   entry,
   onRemove,
@@ -169,6 +188,8 @@ function LogFoodCard({
   const [avgRating, setAvgRating] = useState<number | undefined>(undefined);
   const [userRating, setUserRating] = useState<number | undefined>(undefined);
 
+  // Whenever entry.foodItemID changes, update the state of the food
+  // with its relevant item ratings (avg & user)
   useEffect(() => {
     let mounted = true;
     const uid = auth.currentUser?.uid;
@@ -180,10 +201,13 @@ function LogFoodCard({
       })
       .catch(() => {});
     return () => {
+      // Prevent state updates after unmount with a flag
       mounted = false;
     };
   }, [entry.foodItemId]);
 
+  // For each item, attach the scraped nutritional info from the databse
+  // to the log card
   const item = {
     id: entry.foodItemId,
     name: entry.foodName,
@@ -197,6 +221,11 @@ function LogFoodCard({
     station: '',
   } as any;
 
+  // FoodCard component returned:
+  // item - formatted food data
+  // compact UI variant
+  // average and user ratings
+  // onRemove - wrapped callback to remove this entry
   return (
     <FoodCard
       item={item}
@@ -283,19 +312,23 @@ export default function DashboardScreen() {
     }, [refreshDashboard]),
   );
 
+  // Callback function to remove a food log entry from the local todayLog
+  // as well as the food log database
   const handleRemoveLog = useCallback(async (entry: LogEntry | DailyLogEntry) => {
     const user = auth.currentUser;
     if (!user) return;
     try {
+      // Wait for the log to be removed from the backend
       await removeDailyLog(user.uid, entry.id);
+      // Then remove from the frontend (functional state update)
       setTodayLog((prev) => prev.filter((e) => e.id !== entry.id));
     } catch (error) {
       Alert.alert('Could not remove item', error instanceof Error ? error.message : 'Please try again.');
     }
   }, []);
 
-
-
+  // Sign out process: wait for the auth call to sign the user out; 
+  // if sign out fails for some reason, print an error message
   const handleSignOut = useCallback(async () => {
     try {
       await signOut(auth);
@@ -304,6 +337,9 @@ export default function DashboardScreen() {
     }
   }, []);
 
+  // Finally, construct and return the actual dashboard formatting
+  // Sam is tapping out on documenting this part
+  // It's basically CSS
   return (
     <ScrollView
       style={styles.scroll}
